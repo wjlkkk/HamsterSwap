@@ -1,7 +1,5 @@
 import { ethers } from "ethers"
-
-// 空投合约地址
-export const AIRDROP_CONTRACT_ADDRESS = "0xa85233C63b9Ee964Add6F2cffe00Fd84eb32338f"
+import { getContractAddress } from "@/utils/contract-addresses"
 
 // ERC20 ABI - 包含标准方法和扩展方法
 export const ERC20_ABI = [
@@ -24,25 +22,15 @@ export const ERC20_ABI = [
   "function unpause() returns (bool)",
 ]
 
+// 获取空投合约地址
+export const getAirdropContractAddress = async () => {
+  return await getContractAddress("Airdrop")
+}
+
 // 已部署的代币列表
-export const deployedTokens = [
-  {
-    address: "0x5fbdb2315678afecb367f032d93f642f64180aa3",
-    name: "Cake Token",
-    symbol: "CAKE",
-    decimals: 18,
-    logo: "/cake-logo.svg",
-    owner: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", // 默认Hardhat第一个账户
-  },
-  {
-    address: "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
-    name: "Take Token",
-    symbol: "TAKE",
-    decimals: 18,
-    logo: "/abstract-take-logo.png",
-    owner: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", // 默认Hardhat第一个账户
-  },
-]
+export const getDeployedTokens = async () => {
+  return [] // 返回空数组，让管理员手动添加代币
+}
 
 // 获取代币信息
 export async function getTokenInfo(tokenAddress: string, provider: ethers.BrowserProvider) {

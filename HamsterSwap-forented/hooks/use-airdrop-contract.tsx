@@ -4,10 +4,10 @@ import { useState, useCallback, useEffect } from "react"
 import { useWallet } from "@/contexts/wallet-context"
 import { ethers } from "ethers"
 import {
-  AIRDROP_CONTRACT_ADDRESS,
   AIRDROP_ABI,
   getAllAirdrops as fetchAllAirdrops,
   getUserEligibility,
+  getAirdropContractAddress,
 } from "@/contracts/airdrop-contract"
 
 // 初始空数组，将从链上获取实际数据
@@ -19,10 +19,33 @@ export function useAirdropContract() {
   const [error, setError] = useState<string | null>(null)
   const [airdrops, setAirdrops] = useState(initialAirdrops)
   const [isInitialized, setIsInitialized] = useState(false)
+  const [contractAddress, setContractAddress] = useState<string | null>(null)
+
+  // 初始化时获取合约地址
+  useEffect(() => {
+    async function loadContractAddress() {
+      try {
+        const address = await getAirdropContractAddress()
+        console.log("Loaded Airdrop contract address:", address)
+        setContractAddress(address)
+      } catch (err) {
+        console.error("Error loading Airdrop contract address:", err)
+        setError("获取空投合约地址失败")
+      }
+    }
+
+    loadContractAddress()
+  }, [])
 
   // 从区块链获取实际空投数据
   const fetchAirdrops = useCallback(async () => {
-    if (!walletState.provider) return
+    if (!walletState.provider || !contractAddress) {
+      console.log("Cannot fetch airdrops: provider or contract address missing", {
+        provider: !!walletState.provider,
+        contractAddress,
+      })
+      return
+    }
 
     setIsLoading(true)
     setError(null)
@@ -54,28 +77,28 @@ export function useAirdropContract() {
     } finally {
       setIsLoading(false)
     }
-  }, [walletState.provider])
+  }, [walletState.provider, contractAddress])
 
   // 初始化时获取空投列表
   useEffect(() => {
-    if (walletState.provider && !isInitialized) {
+    if (walletState.provider && contractAddress && !isInitialized) {
       fetchAirdrops()
     }
-  }, [walletState.provider, fetchAirdrops, isInitialized])
+  }, [walletState.provider, fetchAirdrops, isInitialized, contractAddress])
 
   // 创建空投
   const createAirdrop = async (tokenAddress: string, amount: string, startTime: number, endTime: number) => {
-    if (!walletState.provider || !walletState.signer || !walletState.address) {
-      setError("请先连接钱包")
+    if (!walletState.provider || !walletState.signer || !walletState.address || !contractAddress) {
+      setError("请先连接钱包或合约地址未加载")
       return
     }
-
+    console.log("AIRDROP_ABI:", tokenAddress)
     setIsLoading(true)
     setError(null)
 
     try {
       const provider = new ethers.BrowserProvider(walletState.provider)
-      const airdropContract = new ethers.Contract(AIRDROP_CONTRACT_ADDRESS, AIRDROP_ABI, provider)
+      const airdropContract = new ethers.Contract(contractAddress, AIRDROP_ABI, provider)
       const airdropWithSigner = airdropContract.connect(walletState.signer)
 
       // 添加默认的merkleRoot参数 (ethers.ZeroHash)
@@ -116,8 +139,8 @@ export function useAirdropContract() {
 
   // 设置用户资格和金额
   const setEligibility = async (users: string[], amounts: string[], airdropId: number) => {
-    if (!walletState.provider || !walletState.signer || !walletState.address) {
-      setError("请先连接钱包")
+    if (!walletState.provider || !walletState.signer || !walletState.address || !contractAddress) {
+      setError("请先连接钱包或合约地址未加载")
       return
     }
 
@@ -137,7 +160,7 @@ export function useAirdropContract() {
       }
 
       const provider = new ethers.BrowserProvider(walletState.provider)
-      const airdropContract = new ethers.Contract(AIRDROP_CONTRACT_ADDRESS, AIRDROP_ABI, provider)
+      const airdropContract = new ethers.Contract(contractAddress, AIRDROP_ABI, provider)
       const airdropWithSigner = airdropContract.connect(walletState.signer)
 
       // 将金额转换为wei
@@ -182,8 +205,8 @@ export function useAirdropContract() {
 
   // 领取空投
   const claim = async (airdropId: number) => {
-    if (!walletState.provider || !walletState.signer || !walletState.address) {
-      setError("请先连接钱包")
+    if (!walletState.provider || !walletState.signer || !walletState.address || !contractAddress) {
+      setError("请先连接钱包或合约地址未加载")
       return
     }
 
@@ -213,7 +236,7 @@ export function useAirdropContract() {
       }
 
       // 检查空投是否激活
-      const airdropContract = new ethers.Contract(AIRDROP_CONTRACT_ADDRESS, AIRDROP_ABI, provider)
+      const airdropContract = new ethers.Contract(contractAddress, AIRDROP_ABI, provider)
       const airdropInfo = await airdropContract.getAirdropInfo(airdropId)
       if (!airdropInfo[5]) {
         // isActive 在返回元组中的索引是5
@@ -272,8 +295,8 @@ export function useAirdropContract() {
 
   // 激活空投
   const activateAirdrop = async (airdropId: number) => {
-    if (!walletState.provider || !walletState.signer || !walletState.address) {
-      setError("请先连接钱包")
+    if (!walletState.provider || !walletState.signer || !walletState.address || !contractAddress) {
+      setError("请先连接钱包或合约地址未加载")
       return
     }
 
@@ -290,7 +313,7 @@ export function useAirdropContract() {
       console.log(`Activating airdrop with ID: ${airdropId}`)
 
       const provider = new ethers.BrowserProvider(walletState.provider)
-      const airdropContract = new ethers.Contract(AIRDROP_CONTRACT_ADDRESS, AIRDROP_ABI, provider)
+      const airdropContract = new ethers.Contract(contractAddress, AIRDROP_ABI, provider)
       const airdropWithSigner = airdropContract.connect(walletState.signer)
 
       // 估算Gas以检查是否会失败
@@ -331,8 +354,8 @@ export function useAirdropContract() {
 
   // 停用空投
   const deactivateAirdrop = async (airdropId: number) => {
-    if (!walletState.provider || !walletState.signer || !walletState.address) {
-      setError("请先连接钱包")
+    if (!walletState.provider || !walletState.signer || !walletState.address || !contractAddress) {
+      setError("请先连接钱包或合约地址未加载")
       return
     }
 
@@ -349,7 +372,7 @@ export function useAirdropContract() {
       console.log(`Deactivating airdrop with ID: ${airdropId}`)
 
       const provider = new ethers.BrowserProvider(walletState.provider)
-      const airdropContract = new ethers.Contract(AIRDROP_CONTRACT_ADDRESS, AIRDROP_ABI, provider)
+      const airdropContract = new ethers.Contract(contractAddress, AIRDROP_ABI, provider)
       const airdropWithSigner = airdropContract.connect(walletState.signer)
 
       // 估算Gas以检查是否会失败
@@ -439,5 +462,6 @@ export function useAirdropContract() {
     getAllAirdrops,
     refreshAirdrops,
     isInitialized,
+    contractAddress,
   }
 }

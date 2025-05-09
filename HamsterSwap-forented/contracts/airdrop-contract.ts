@@ -1,6 +1,7 @@
 // 这个文件定义了与Airdrop合约交互所需的接口和函数
 
 import { ethers } from "ethers"
+import { getContractAddress } from "@/utils/contract-addresses"
 
 // Airdrop合约ABI - 这是与合约交互所需的接口定义
 export const AIRDROP_ABI = [
@@ -31,18 +32,25 @@ export const AIRDROP_ABI = [
   "event UnclaimedTokensWithdrawn(uint256 indexed airdropId, uint256 amount)",
 ]
 
-// Airdrop合约地址 - 更新为实际部署的合约地址
-export const AIRDROP_CONTRACT_ADDRESS = "0x99bbA657f2BbC93c02D617f8bA121cB8Fc104Acf" // 正确的合约地址
+// 获取Airdrop合约地址
+export const getAirdropContractAddress = async (): Promise<string> => {
+  console.log("Getting Airdrop contract address...")
+  const address = await getContractAddress("Airdrop")
+  console.log("Airdrop contract address:", address)
+  return address
+}
 
 // 连接到Airdrop合约
-export const connectToAirdropContract = (provider: ethers.Provider, signer?: ethers.Signer) => {
-  const contract = new ethers.Contract(AIRDROP_CONTRACT_ADDRESS, AIRDROP_ABI, signer || provider)
+export const connectToAirdropContract = async (provider: ethers.Provider, signer?: ethers.Signer) => {
+  const contractAddress = await getAirdropContractAddress()
+  console.log("Connecting to Airdrop contract at address:", contractAddress)
+  const contract = new ethers.Contract(contractAddress, AIRDROP_ABI, signer || provider)
   return contract
 }
 
 // 获取所有空投活动信息
 export const getAllAirdrops = async (provider: ethers.Provider) => {
-  const contract = connectToAirdropContract(provider)
+  const contract = await connectToAirdropContract(provider)
   const airdropsCount = await contract.airdropsCount()
 
   const airdrops = []
@@ -65,25 +73,25 @@ export const getAllAirdrops = async (provider: ethers.Provider) => {
 
 // 获取用户在特定空投活动的资格信息
 export const getUserEligibility = async (provider: ethers.Provider, airdropId: number, userAddress: string) => {
-  const contract = connectToAirdropContract(provider)
+  const contract = await connectToAirdropContract(provider)
   const eligibility = await contract.getUserEligibility(airdropId, userAddress)
 
   return {
     isEligible: eligibility[0], // 使用索引访问返回的元组
-    amount: ethers.formatEther(eligibility[1]),
+    amount: eligibility[1],
     claimed: eligibility[2],
   }
 }
 
 // 检查用户是否满足特定空投的资格条件
 export const checkEligibilityCriteria = async (provider: ethers.Provider, airdropId: number, userAddress: string) => {
-  const contract = connectToAirdropContract(provider)
+  const contract = await connectToAirdropContract(provider)
   return await contract.checkEligibilityCriteria(airdropId, userAddress)
 }
 
 // 领取空投代币
 export const claimAirdrop = async (provider: ethers.Provider, signer: ethers.Signer, airdropId: number) => {
-  const contract = connectToAirdropContract(provider, signer)
+  const contract = await connectToAirdropContract(provider, signer)
 
   // 直接使用数字类型，不转换为BigInt
   console.log(`Claiming airdrop with ID: ${airdropId}`)
@@ -95,7 +103,7 @@ export const claimAirdrop = async (provider: ethers.Provider, signer: ethers.Sig
 
 // 批量领取多个空投
 export const batchClaimAirdrops = async (provider: ethers.Provider, signer: ethers.Signer, airdropIds: number[]) => {
-  const contract = connectToAirdropContract(provider, signer)
+  const contract = await connectToAirdropContract(provider, signer)
 
   // 执行批量领取交易
   const tx = await contract.batchClaim(airdropIds)
@@ -110,7 +118,7 @@ export const setEligibility = async (
   addresses: string[],
   amounts: string[],
 ) => {
-  const contract = connectToAirdropContract(provider, signer)
+  const contract = await connectToAirdropContract(provider, signer)
 
   // 将金额转换为wei
   const amountsInWei = amounts.map((amount) => ethers.parseEther(amount))
@@ -130,7 +138,7 @@ export const createAirdrop = async (
   endTime: number,
   merkleRoot: string = ethers.ZeroHash, // 默认为空merkle root
 ) => {
-  const contract = connectToAirdropContract(provider, signer)
+  const contract = await connectToAirdropContract(provider, signer)
 
   // 将金额转换为wei
   const totalAmountInWei = ethers.parseEther(totalAmount)
@@ -173,28 +181,28 @@ export const createAirdrop = async (
 
 // 激活空投
 export const activateAirdrop = async (provider: ethers.Provider, signer: ethers.Signer, airdropId: number) => {
-  const contract = connectToAirdropContract(provider, signer)
+  const contract = await connectToAirdropContract(provider, signer)
   const tx = await contract.activateAirdrop(airdropId)
   return await tx.wait()
 }
 
 // 停用空投
 export const deactivateAirdrop = async (provider: ethers.Provider, signer: ethers.Signer, airdropId: number) => {
-  const contract = connectToAirdropContract(provider, signer)
+  const contract = await connectToAirdropContract(provider, signer)
   const tx = await contract.deactivateAirdrop(airdropId)
   return await tx.wait()
 }
 
 // 取消空投
 export const cancelAirdrop = async (provider: ethers.Provider, signer: ethers.Signer, airdropId: number) => {
-  const contract = connectToAirdropContract(provider, signer)
+  const contract = await connectToAirdropContract(provider, signer)
   const tx = await contract.cancelAirdrop(airdropId)
   return await tx.wait()
 }
 
 // 提取未领取的代币
 export const withdrawUnclaimedTokens = async (provider: ethers.Provider, signer: ethers.Signer, airdropId: number) => {
-  const contract = connectToAirdropContract(provider, signer)
+  const contract = await connectToAirdropContract(provider, signer)
   const tx = await contract.withdrawUnclaimedTokens(airdropId)
   return await tx.wait()
 }

@@ -2,14 +2,13 @@
 
 import { useState, useEffect } from "react"
 import Image from "next/image"
-import { ChevronDown, Settings, ArrowDown } from "lucide-react"
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { motion } from "framer-motion"
 import { useWallet } from "@/contexts/wallet-context"
 import Navbar from "@/components/navbar"
 
 export default function Home() {
-  const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const { setIsWalletModalOpen } = useWallet()
   const [mounted, setMounted] = useState(false)
@@ -33,182 +32,140 @@ export default function Home() {
     return () => window.removeEventListener("scroll", handleScroll)
   }, [])
 
+  // Staggered animation for text elements
+  const container = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.3,
+        delayChildren: 0.4,
+      },
+    },
+  }
+
+  const item = {
+    hidden: { opacity: 0, y: 20 },
+    show: {
+      opacity: 1,
+      y: 0,
+      transition: {
+        duration: 1.2,
+        ease: [0.22, 1, 0.36, 1],
+      },
+    },
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#F9F5EA] via-[#EACC91]/20 to-[#F9F5EA] font-sans">
+    <div className="min-h-screen bg-gradient-to-br from-[#F9F5EA] via-[#EACC91] to-[#987A3F]/30 font-sans overflow-hidden">
       {/* Navigation Bar */}
       <Navbar />
 
       {/* Main Content */}
-      <main className="container mx-auto px-4 pt-32 pb-20">
-        <div className="grid gap-12 md:grid-cols-2 items-center">
+      <main className="container mx-auto px-4 pt-24 pb-20 relative">
+        {/* Background decorative elements */}
+        <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0">
+          <div className="absolute top-20 right-10 w-72 h-72 bg-[#EACC91]/40 rounded-full blur-3xl"></div>
+          <div className="absolute bottom-40 left-10 w-96 h-96 bg-[#987A3F]/20 rounded-full blur-3xl"></div>
+          <div className="absolute top-1/2 left-1/3 w-64 h-64 bg-[#F9F5EA]/50 rounded-full blur-3xl"></div>
+        </div>
+
+        {/* Hero Section with Big Character Poster Style */}
+        <div className="flex flex-col items-center justify-center min-h-[80vh] text-center relative z-10">
+          {/* Logo */}
           <motion.div
-            className="flex flex-col justify-center space-y-8"
-            initial={{ opacity: 0, x: -50 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5 }}
+            className="mb-8"
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ duration: 1.5, ease: [0.22, 1, 0.36, 1] }}
           >
-            <h1 className="text-5xl md:text-6xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#523805] to-[#987A3F] leading-tight">
-              The cutest swap in the galaxy.
-            </h1>
-            <p className="text-xl text-[#523805]/80 leading-relaxed">
-              Trade, earn, and win crypto on the most popular decentralized platform in the galaxy.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4">
+            <Image
+              src="/hamster-logo.svg"
+              alt="Hamster Logo"
+              width={120}
+              height={120}
+              className="rounded-full border-4 border-[#987A3F] shadow-lg"
+            />
+          </motion.div>
+
+          {/* Text content with staggered fade-in animations */}
+          <motion.div variants={container} initial="hidden" animate="show" className="flex flex-col items-center">
+            {/* Main Title - Big Character Style */}
+            <motion.h1
+              variants={item}
+              className="text-7xl md:text-9xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-[#523805] to-[#987A3F] leading-tight mb-6 tracking-tight"
+            >
+              HamsterSwap
+            </motion.h1>
+
+            {/* Subtitle in Big Character Style */}
+            <motion.h2 variants={item} className="text-4xl md:text-6xl font-bold text-[#523805] mb-4 tracking-tight">
+              宇宙最可爱的交易所
+            </motion.h2>
+
+            <motion.p variants={item} className="text-2xl md:text-3xl text-[#523805]/80 max-w-3xl mx-auto mb-12">
+              The Cutest Swap in the Galaxy
+            </motion.p>
+
+            {/* Call to Action Buttons */}
+            <motion.div variants={item} className="flex flex-col sm:flex-row gap-6 justify-center">
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                 <Button
-                  onClick={() => setIsWalletModalOpen(true)}
-                  className="rounded-full bg-gradient-to-r from-[#EACC91] to-[#987A3F] hover:from-[#987A3F] hover:to-[#523805] text-[#523805] hover:text-white font-medium shadow-lg hover:shadow-xl px-8 py-6 text-lg w-full sm:w-auto"
+                  onClick={() => mounted && setIsWalletModalOpen(true)}
+                  className="rounded-full bg-gradient-to-r from-[#EACC91] to-[#987A3F] hover:from-[#987A3F] hover:to-[#523805] text-[#523805] hover:text-white font-bold shadow-lg hover:shadow-xl px-10 py-8 text-xl"
                 >
-                  <span className="flex items-center gap-2">
-                    <span>🐹</span> Connect Wallet
+                  <span className="flex items-center gap-3">
+                    <span className="text-2xl">🐹</span> 连接钱包
                   </span>
                 </Button>
               </motion.div>
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <Button
-                  variant="outline"
-                  className="rounded-full border-2 border-[#987A3F] text-[#523805] hover:bg-[#EACC91]/20 px-8 py-6 text-lg font-medium w-full sm:w-auto"
-                >
-                  Trade Now
-                </Button>
+                <Link href="/trade">
+                  <Button
+                    variant="outline"
+                    className="rounded-full border-4 border-[#987A3F] text-[#523805] hover:bg-[#EACC91]/20 px-10 py-8 text-xl font-bold"
+                  >
+                    开始交易
+                  </Button>
+                </Link>
               </motion.div>
-            </div>
-          </motion.div>
-          <motion.div
-            className="flex items-center justify-center"
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-          >
-            <div className="flex flex-col gap-4 bg-white rounded-3xl shadow-xl border border-[#EACC91] p-6 w-full max-w-md mx-auto">
-              <div className="flex justify-between items-center mb-2">
-                <h2 className="text-xl font-bold text-[#523805]">Swap</h2>
-                <div className="p-2 rounded-full bg-[#EACC91]/30">
-                  <Settings className="h-5 w-5 text-[#523805]" />
-                </div>
-              </div>
-
-              {/* From Token 输入 */}
-              <div className="bg-[#F9F5EA] rounded-2xl p-4 mb-2">
-                <div className="flex justify-between mb-2">
-                  <span className="text-[#523805]/70">From</span>
-                  <span className="text-sm text-[#523805]/70">Balance: 1.56 ETH</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value="1"
-                    readOnly
-                    className="bg-transparent text-2xl font-medium text-[#523805] focus:outline-none w-full"
-                    placeholder="0.0"
-                  />
-                  <div className="flex items-center gap-2 bg-white rounded-full px-3 py-1.5 border border-[#EACC91]">
-                    <div className="relative h-6 w-6">
-                      <Image src="/eth-logo.svg" alt="Ethereum" width={24} height={24} className="rounded-full" />
-                    </div>
-                    <span className="font-medium text-[#523805]">ETH</span>
-                    <ChevronDown className="h-4 w-4 text-[#523805]/50" />
-                  </div>
-                </div>
-                <div className="flex justify-end mt-2">
-                  <span className="text-sm text-[#523805]/70">~$3,500.00</span>
-                </div>
-              </div>
-
-              {/* 交换按钮 */}
-              <div className="flex justify-center -my-3 relative z-10">
-                <motion.button
-                  type="button"
-                  className="bg-white rounded-full p-2 border border-[#EACC91] shadow-md"
-                  whileHover={{ rotate: 180 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  <ArrowDown className="h-5 w-5 text-[#523805]" />
-                </motion.button>
-              </div>
-
-              {/* To Token 输入 */}
-              <div className="bg-[#F9F5EA] rounded-2xl p-4 mb-4">
-                <div className="flex justify-between mb-2">
-                  <span className="text-[#523805]/70">To</span>
-                  <span className="text-sm text-[#523805]/70">Balance: 150.25 CAKE</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value="1400"
-                    readOnly
-                    className="bg-transparent text-2xl font-medium text-[#523805] focus:outline-none w-full"
-                    placeholder="0.0"
-                  />
-                  <div className="flex items-center gap-2 bg-white rounded-full px-3 py-1.5 border border-[#EACC91]">
-                    <div className="relative h-6 w-6">
-                      <Image src="/cake-logo.svg" alt="CAKE" width={24} height={24} className="rounded-full" />
-                    </div>
-                    <span className="font-medium text-[#523805]">CAKE</span>
-                    <ChevronDown className="h-4 w-4 text-[#523805]/50" />
-                  </div>
-                </div>
-                <div className="flex justify-end mt-2">
-                  <span className="text-sm text-[#523805]/70">~$3,500.00</span>
-                </div>
-              </div>
-
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => mounted && setIsWalletModalOpen(true)}
-                className="w-full bg-gradient-to-r from-[#EACC91] to-[#987A3F] hover:from-[#987A3F] hover:to-[#523805] text-[#523805] hover:text-white font-medium py-4 rounded-xl shadow-md hover:shadow-lg transition-all"
-              >
-                <span className="flex items-center justify-center gap-2">
-                  <span>🐹</span> Swap
-                </span>
-              </motion.button>
-            </div>
+            </motion.div>
           </motion.div>
         </div>
 
-        {/* Stats Section */}
+        {/* Decorative Hamsters */}
         <motion.div
-          className="mt-24 grid grid-cols-2 md:grid-cols-4 gap-6"
-          initial={{ opacity: 0, y: 50 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.4 }}
+          className="absolute bottom-10 right-10 md:right-20"
+          initial={{ opacity: 0, x: 100 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 1.5, delay: 1.8, ease: [0.22, 1, 0.36, 1] }}
         >
-          {[
-            { label: "Total Value Locked", value: "$9.6B" },
-            { label: "Users", value: "2.4M+" },
-            { label: "Trades", value: "97.4M+" },
-            { label: "Tokens", value: "3,400+" },
-          ].map((stat, index) => (
-            <motion.div
-              key={stat.label}
-              className="bg-white/80 backdrop-blur-md rounded-2xl p-6 shadow-lg border border-[#EACC91]"
-              whileHover={{
-                y: -5,
-                boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
-              }}
-              transition={{ type: "spring", stiffness: 300 }}
-            >
-              <h3 className="text-[#523805]/60 text-sm font-medium mb-2">{stat.label}</h3>
-              <p className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#523805] to-[#987A3F]">
-                {stat.value}
-              </p>
-            </motion.div>
-          ))}
+          <Image
+            src="/hamster-logo.svg"
+            alt="Decorative Hamster"
+            width={80}
+            height={80}
+            className="animate-bounce"
+            style={{ animationDuration: "3s" }}
+          />
+        </motion.div>
+
+        <motion.div
+          className="absolute top-40 left-10 md:left-20 hidden md:block"
+          initial={{ opacity: 0, x: -100 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 1.5, delay: 2, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <Image
+            src="/hamster-logo.svg"
+            alt="Decorative Hamster"
+            width={60}
+            height={60}
+            className="animate-bounce"
+            style={{ animationDuration: "4s" }}
+          />
         </motion.div>
       </main>
-
-      {/* Footer Logo */}
-      <motion.div
-        className="fixed bottom-6 right-6"
-        whileHover={{ rotate: 15, scale: 1.2 }}
-        transition={{ type: "spring", stiffness: 300 }}
-      >
-        <div className="relative h-12 w-12 drop-shadow-lg">
-          <Image src="/hamster-logo.svg" alt="Logo" width={48} height={48} className="rounded-full" />
-        </div>
-      </motion.div>
     </div>
   )
 }

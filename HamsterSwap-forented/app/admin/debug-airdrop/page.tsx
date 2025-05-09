@@ -8,13 +8,15 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { AlertCircle, Loader2, RefreshCw, Check, Copy } from "lucide-react"
+import { AlertCircle, Loader2 } from "lucide-react"
 import Navbar from "@/components/navbar"
-import { useToast } from "@/hooks/use-toast"
-import { deployedTokens } from "@/contracts/token-contract"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
-// ERC20 ABI - 只包含我们需要的方法
+// 空投合约ABI
+const AIRDROP_ABI = [
+  "function createAirdrop(address tokenAddress, uint256 amount, uint256 startTime, uint256 endTime) external",
+]
+
+// 代币ABI
 const TOKEN_ABI = [
   "function name() view returns (string)",
   "function symbol() view returns (string)",
@@ -27,35 +29,17 @@ const TOKEN_ABI = [
 // 空投合约地址
 const AIRDROP_CONTRACT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
 
-export default function DebugApprove() {
+export default function DebugAirdrop() {
   const { walletState } = useWallet()
-  const { toast } = useToast()
   const [tokenAddress, setTokenAddress] = useState("")
-  const [spenderAddress, setSpenderAddress] = useState(AIRDROP_CONTRACT_ADDRESS)
   const [amount, setAmount] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
+  const [startTime, setStartTime] = useState("")
+  const [endTime, setEndTime] = useState("")
+  const [debugInfo, setDebugInfo] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
-  const [tokenInfo, setTokenInfo] = useState<any>(null)
-  const [allowanceInfo, setAllowanceInfo] = useState<any>(null)
-  const [balanceInfo, setBalanceInfo] = useState<any>(null)
-  const [txHash, setTxHash] = useState<string | null>(null)
-  const [logs, setLogs] = useState<string[]>([])
-
-  // 添加日志
-  const addLog = (message: string) => {
-    setLogs((prevLogs) => [...prevLogs, `[${new Date().toLocaleTimeString()}] ${message}`])
-  }
-
-  // 复制到剪贴板
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
-    toast({
-      title: "已复制到剪贴板",
-      description: "文本已成功复制到剪贴板。",
-      duration: 2000,
-    })
-  }
+  const [isLoading, setIsLoading] = useState(false)
+  const [tokenDecimals, setTokenDecimals] = useState<number | null>(null)
+  const [tokenSymbol, setTokenSymbol] = useState<string>("")
 
   // 获取代币信息
   const fetchTokenInfo = async () => {
@@ -65,161 +49,23 @@ export default function DebugApprove() {
 
     setIsLoading(true)
     setError(null)
-    setSuccess(null)
-    setTokenInfo(null)
 
     try {
-      addLog(`开始获取代币信息: ${tokenAddress}`)
       const provider = new ethers.BrowserProvider(walletState.provider)
       const tokenContract = new ethers.Contract(tokenAddress, TOKEN_ABI, provider)
 
-      // 获取代币信息
-      const [name, symbol, decimals] = await Promise.all([
-        tokenContract.name(),
-        tokenContract.symbol(),
-        tokenContract.decimals(),
-      ])
+      // 获取代币小数位数和符号
+      const [decimals, symbol] = await Promise.all([tokenContract.decimals(), tokenContract.symbol()])
 
-      const info = { name, symbol, decimals }
-      setTokenInfo(info)
-      addLog(`代币信息获取成功: ${symbol} (${name}), 小数位: ${decimals}`)
+      setTokenDecimals(decimals)
+      setTokenSymbol(symbol)
 
-      // 获取余额
-      if (walletState.address) {
-        await fetchBalance()
-      }
-
-      // 获取授权额度
-      if (walletState.address && spenderAddress) {
-        await fetchAllowance()
-      }
-    } catch (err: any) {
+      console.log(`代币信息: ${symbol}, 小数位: ${decimals}`)
+    } catch (err) {
       console.error("获取代币信息失败:", err)
-      setError(`获取代币信息失败: ${err.message || "未知错误"}`)
-      addLog(`获取代币信息失败: ${err.message || "未知错误"}`)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  // 获取余额
-  const fetchBalance = async () => {
-    if (!walletState.provider || !walletState.address || !tokenAddress || !tokenInfo) {
-      return
-    }
-
-    setIsLoading(true)
-    setError(null)
-
-    try {
-      addLog(`开始获取余额: 地址=${walletState.address}`)
-      const provider = new ethers.BrowserProvider(walletState.provider)
-      const tokenContract = new ethers.Contract(tokenAddress, TOKEN_ABI, provider)
-
-      // 获取余额
-      const balance = await tokenContract.balanceOf(walletState.address)
-      const formattedBalance = ethers.formatUnits(balance, tokenInfo.decimals)
-
-      setBalanceInfo({
-        raw: balance.toString(),
-        formatted: formattedBalance,
-      })
-
-      addLog(`余额获取成功: ${formattedBalance} ${tokenInfo.symbol}`)
-    } catch (err: any) {
-      console.error("获取余额失败:", err)
-      setError(`获取余额失败: ${err.message || "未知错误"}`)
-      addLog(`获取余额失败: ${err.message || "未知错误"}`)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  // 获取授权额度
-  const fetchAllowance = async () => {
-    if (!walletState.provider || !walletState.address || !tokenAddress || !spenderAddress || !tokenInfo) {
-      return
-    }
-
-    setIsLoading(true)
-    setError(null)
-
-    try {
-      addLog(`开始获取授权额度: 所有者=${walletState.address}, 授权者=${spenderAddress}`)
-      const provider = new ethers.BrowserProvider(walletState.provider)
-      const tokenContract = new ethers.Contract(tokenAddress, TOKEN_ABI, provider)
-
-      // 获取授权额度
-      const allowance = await tokenContract.allowance(walletState.address, spenderAddress)
-      const formattedAllowance = ethers.formatUnits(allowance, tokenInfo.decimals)
-
-      setAllowanceInfo({
-        raw: allowance.toString(),
-        formatted: formattedAllowance,
-      })
-
-      addLog(`授权额度获取成功: ${formattedAllowance} ${tokenInfo.symbol}`)
-    } catch (err: any) {
-      console.error("获取授权额度失败:", err)
-      setError(`获取授权额度失败: ${err.message || "未知错误"}`)
-      addLog(`获取授权额度失败: ${err.message || "未知错误"}`)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  // 授权代币
-  const approveToken = async () => {
-    if (!walletState.provider || !walletState.address || !tokenAddress || !spenderAddress || !amount || !tokenInfo) {
-      setError("请填写所有必填字段")
-      return
-    }
-
-    setIsLoading(true)
-    setError(null)
-    setSuccess(null)
-    setTxHash(null)
-
-    try {
-      addLog(`开始授权代币: 代币=${tokenAddress}, 授权者=${spenderAddress}, 数量=${amount}`)
-
-      // 获取签名者
-      const provider = new ethers.BrowserProvider(walletState.provider)
-      const signer = await provider.getSigner()
-      addLog(`获取签名者成功: ${await signer.getAddress()}`)
-
-      // 创建合约实例
-      const tokenContract = new ethers.Contract(tokenAddress, TOKEN_ABI, signer)
-
-      // 将金额转换为正确的单位
-      const amountInWei = ethers.parseUnits(amount, tokenInfo.decimals)
-      addLog(`授权金额(Wei): ${amountInWei.toString()}`)
-
-      // 发送交易
-      addLog("发送授权交易...")
-      const tx = await tokenContract.approve(spenderAddress, amountInWei)
-      setTxHash(tx.hash)
-      addLog(`交易已发送: ${tx.hash}`)
-
-      // 等待交易确认
-      addLog("等待交易确认...")
-      const receipt = await tx.wait()
-      addLog(`交易已确认: 区块号=${receipt.blockNumber}, 状态=${receipt.status === 1 ? "成功" : "失败"}`)
-
-      if (receipt.status === 1) {
-        setSuccess(`授权成功! 交易哈希: ${tx.hash}`)
-
-        // 延迟一下再查询授权额度，确保区块链状态已更新
-        setTimeout(() => {
-          fetchAllowance()
-        }, 2000)
-      } else {
-        setError("交易已确认但状态为失败")
-      }
-    } catch (err: any) {
-      console.error("授权代币失败:", err)
-      setError(`授权代币失败: ${err.message || "未知错误"}`)
-      addLog(`授权代币失败: ${err.message || "未知错误"}`)
+      setError("获取代币信息失败，请确保代币地址正确")
+      setTokenDecimals(null)
+      setTokenSymbol("")
     } finally {
       setIsLoading(false)
     }
@@ -229,15 +75,179 @@ export default function DebugApprove() {
   useEffect(() => {
     if (tokenAddress) {
       fetchTokenInfo()
+    } else {
+      setTokenDecimals(null)
+      setTokenSymbol("")
     }
   }, [tokenAddress])
 
-  // 当spender地址变化时获取授权额度
-  useEffect(() => {
-    if (tokenInfo && spenderAddress && walletState.address) {
-      fetchAllowance()
+  // 检查代币余额和授权
+  const checkTokenStatus = async () => {
+    if (!walletState.provider || !walletState.address || !tokenAddress || tokenDecimals === null) {
+      setError("请先连接钱包并输入有效的代币地址")
+      return
     }
-  }, [spenderAddress, tokenInfo, walletState.address])
+
+    setIsLoading(true)
+    setError(null)
+    setDebugInfo(null)
+
+    try {
+      const provider = new ethers.BrowserProvider(walletState.provider)
+      const tokenContract = new ethers.Contract(tokenAddress, TOKEN_ABI, provider)
+
+      // 获取余额
+      const balance = await tokenContract.balanceOf(walletState.address)
+
+      // 获取授权额度
+      const allowance = await tokenContract.allowance(walletState.address, AIRDROP_CONTRACT_ADDRESS)
+
+      // 获取当前时间戳
+      const currentTimestamp = Math.floor(Date.now() / 1000)
+
+      // 解析开始和结束时间
+      const parsedStartTime = startTime ? Math.floor(new Date(startTime).getTime() / 1000) : 0
+      const parsedEndTime = endTime ? Math.floor(new Date(endTime).getTime() / 1000) : 0
+
+      // 解析金额
+      const parsedAmount = amount ? ethers.parseUnits(amount, tokenDecimals) : ethers.parseUnits("0", tokenDecimals)
+
+      setDebugInfo({
+        balance: ethers.formatUnits(balance, tokenDecimals),
+        allowance: ethers.formatUnits(allowance, tokenDecimals),
+        currentTimestamp,
+        parsedStartTime,
+        parsedEndTime,
+        parsedAmount: ethers.formatUnits(parsedAmount, tokenDecimals),
+        hasEnoughBalance: balance >= parsedAmount,
+        hasEnoughAllowance: allowance >= parsedAmount,
+        isStartTimeValid: parsedStartTime > currentTimestamp,
+        isEndTimeValid: parsedEndTime > parsedStartTime,
+      })
+
+      console.log("检查状态成功:", {
+        balance: ethers.formatUnits(balance, tokenDecimals),
+        allowance: ethers.formatUnits(allowance, tokenDecimals),
+        decimals: tokenDecimals,
+      })
+    } catch (err) {
+      console.error("检查代币状态失败:", err)
+      setError("检查代币状态失败，请确保代币地址正确")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // 授权代币
+  const approveToken = async () => {
+    if (!walletState.provider || !walletState.address || !tokenAddress || !amount || tokenDecimals === null) {
+      setError("请先连接钱包并输入代币地址和金额")
+      return
+    }
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      // 确保我们有一个有效的提供者和签名者
+      const provider = new ethers.BrowserProvider(walletState.provider)
+      const signer = await provider.getSigner()
+
+      console.log("获取到签名者:", await signer.getAddress())
+
+      // 创建带有签名者的合约实例
+      const tokenContract = new ethers.Contract(tokenAddress, TOKEN_ABI, signer)
+
+      // 将金额转换为正确的单位（使用代币的小数位数）
+      const parsedAmount = ethers.parseUnits(amount, tokenDecimals)
+
+      console.log(`尝试授权 ${amount} ${tokenSymbol} (${parsedAmount.toString()} wei) 给 ${AIRDROP_CONTRACT_ADDRESS}`)
+
+      // 发送授权交易
+      const tx = await tokenContract.approve(AIRDROP_CONTRACT_ADDRESS, parsedAmount)
+      console.log("授权交易已发送:", tx.hash)
+
+      // 等待交易确认
+      const receipt = await tx.wait()
+      console.log("授权交易已确认:", receipt)
+
+      setDebugInfo({
+        ...debugInfo,
+        message: `成功授权 ${amount} ${tokenSymbol} 给空投合约`,
+      })
+
+      // 重新检查状态
+      await checkTokenStatus()
+    } catch (err: any) {
+      console.error("授权代币失败:", err)
+      setError(`授权代币失败: ${err.message || "未知错误"}`)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // 尝试创建空投
+  const tryCreateAirdrop = async () => {
+    if (
+      !walletState.provider ||
+      !walletState.address ||
+      !tokenAddress ||
+      !amount ||
+      !startTime ||
+      !endTime ||
+      tokenDecimals === null
+    ) {
+      setError("请填写所有必填字段")
+      return
+    }
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const provider = new ethers.BrowserProvider(walletState.provider)
+      const signer = await provider.getSigner()
+      const airdropContract = new ethers.Contract(AIRDROP_CONTRACT_ADDRESS, AIRDROP_ABI, signer)
+
+      // 解析参数
+      const parsedAmount = ethers.parseUnits(amount, tokenDecimals)
+      const parsedStartTime = Math.floor(new Date(startTime).getTime() / 1000)
+      const parsedEndTime = Math.floor(new Date(endTime).getTime() / 1000)
+
+      console.log("尝试估算创建空投的Gas:", {
+        tokenAddress,
+        amount: parsedAmount.toString(),
+        startTime: parsedStartTime,
+        endTime: parsedEndTime,
+      })
+
+      // 尝试估算gas
+      try {
+        const gasEstimate = await airdropContract.createAirdrop.estimateGas(
+          tokenAddress,
+          parsedAmount,
+          parsedStartTime,
+          parsedEndTime,
+        )
+
+        setDebugInfo({
+          ...debugInfo,
+          gasEstimate: gasEstimate.toString(),
+          message: "Gas估算成功，交易应该可以执行",
+        })
+
+        console.log("Gas估算成功:", gasEstimate.toString())
+      } catch (err: any) {
+        console.error("Gas估算失败:", err)
+        setError(`Gas估算失败: ${err.message || "未知错误"}`)
+      }
+    } catch (err: any) {
+      console.error("尝试创建空投失败:", err)
+      setError(`尝试创建空投失败: ${err.message || "未知错误"}`)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#F9F5EA] via-[#EACC91]/20 to-[#F9F5EA]">
@@ -245,104 +255,31 @@ export default function DebugApprove() {
       <div className="container mx-auto px-4 py-8 pt-32">
         <Card className="border-[#EACC91]">
           <CardHeader className="bg-gradient-to-r from-[#F9F5EA] to-transparent">
-            <CardTitle className="text-[#523805]">授权调试工具</CardTitle>
-            <CardDescription>诊断和修复代币授权问题</CardDescription>
+            <CardTitle className="text-[#523805]">空投调试工具</CardTitle>
+            <CardDescription>诊断和修复空投创建问题</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
             <div className="space-y-2">
-              <Label htmlFor="tokenSelect" className="text-[#523805]">
-                代币
+              <Label htmlFor="tokenAddress" className="text-[#523805]">
+                代币地址
               </Label>
-              <Select onValueChange={setTokenAddress}>
-                <SelectTrigger id="tokenSelect" className="border-[#EACC91] focus-visible:ring-[#987A3F]">
-                  <SelectValue placeholder="选择代币" />
-                </SelectTrigger>
-                <SelectContent>
-                  {deployedTokens.map((token) => (
-                    <SelectItem key={token.address} value={token.address}>
-                      {token.name} ({token.symbol})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <div className="text-sm text-[#987A3F] mt-1">或直接输入代币地址:</div>
               <Input
-                placeholder="代币地址 (0x...)"
+                id="tokenAddress"
+                placeholder="0x..."
                 value={tokenAddress}
                 onChange={(e) => setTokenAddress(e.target.value)}
                 className="font-mono border-[#EACC91] focus-visible:ring-[#987A3F]"
               />
+              {tokenSymbol && tokenDecimals !== null && (
+                <p className="text-sm text-[#987A3F] mt-1">
+                  已识别: {tokenSymbol} (小数位: {tokenDecimals})
+                </p>
+              )}
             </div>
-
-            {tokenInfo && (
-              <div className="bg-[#F9F5EA] p-4 rounded-md">
-                <h3 className="font-medium text-[#523805]">代币信息</h3>
-                <div className="grid grid-cols-2 gap-2 text-sm mt-2">
-                  <div className="text-[#987A3F]">名称:</div>
-                  <div className="text-[#523805]">{tokenInfo.name}</div>
-
-                  <div className="text-[#987A3F]">符号:</div>
-                  <div className="text-[#523805]">{tokenInfo.symbol}</div>
-
-                  <div className="text-[#987A3F]">小数位:</div>
-                  <div className="text-[#523805]">{tokenInfo.decimals}</div>
-
-                  {balanceInfo && (
-                    <>
-                      <div className="text-[#987A3F]">余额:</div>
-                      <div className="text-[#523805]">
-                        {balanceInfo.formatted} {tokenInfo.symbol}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 ml-1 text-[#987A3F]"
-                          onClick={() => fetchBalance()}
-                        >
-                          <RefreshCw className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="spenderAddress" className="text-[#523805]">
-                授权地址 (Spender)
-              </Label>
-              <Input
-                id="spenderAddress"
-                placeholder="授权地址 (0x...)"
-                value={spenderAddress}
-                onChange={(e) => setSpenderAddress(e.target.value)}
-                className="font-mono border-[#EACC91] focus-visible:ring-[#987A3F]"
-              />
-              <div className="text-xs text-[#987A3F]">默认为空投合约地址: {AIRDROP_CONTRACT_ADDRESS}</div>
-            </div>
-
-            {allowanceInfo && (
-              <div className="bg-[#F9F5EA] p-4 rounded-md">
-                <h3 className="font-medium text-[#523805]">当前授权额度</h3>
-                <div className="flex items-center mt-2">
-                  <span className="text-[#523805] font-medium">{allowanceInfo.formatted}</span>
-                  <span className="text-[#987A3F] ml-1">{tokenInfo.symbol}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 ml-1 text-[#987A3F]"
-                    onClick={() => fetchAllowance()}
-                  >
-                    <RefreshCw className="h-3 w-3" />
-                  </Button>
-                </div>
-                <div className="text-xs text-[#987A3F] mt-1">原始值 (Wei): {allowanceInfo.raw}</div>
-              </div>
-            )}
 
             <div className="space-y-2">
               <Label htmlFor="amount" className="text-[#523805]">
-                授权数量
+                空投数量
               </Label>
               <Input
                 id="amount"
@@ -354,6 +291,34 @@ export default function DebugApprove() {
               />
             </div>
 
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="startTime" className="text-[#523805]">
+                  开始时间
+                </Label>
+                <Input
+                  id="startTime"
+                  type="datetime-local"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  className="border-[#EACC91] focus-visible:ring-[#987A3F]"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="endTime" className="text-[#523805]">
+                  结束时间
+                </Label>
+                <Input
+                  id="endTime"
+                  type="datetime-local"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  className="border-[#EACC91] focus-visible:ring-[#987A3F]"
+                />
+              </div>
+            </div>
+
             {error && (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
@@ -362,57 +327,74 @@ export default function DebugApprove() {
               </Alert>
             )}
 
-            {success && (
-              <Alert variant="default" className="bg-green-50 border-green-200">
-                <Check className="h-4 w-4 text-green-600" />
-                <AlertTitle className="text-green-800">成功</AlertTitle>
-                <AlertDescription className="text-green-700">{success}</AlertDescription>
-              </Alert>
-            )}
+            {debugInfo && (
+              <div className="bg-[#F9F5EA] p-4 rounded-md space-y-2">
+                <h3 className="font-medium text-[#523805]">诊断信息</h3>
 
-            {txHash && (
-              <div className="bg-[#F9F5EA] p-4 rounded-md">
-                <h3 className="font-medium text-[#523805]">交易哈希</h3>
-                <div className="flex items-center mt-2">
-                  <code className="text-xs font-mono text-[#523805] truncate">{txHash}</code>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 ml-1 text-[#987A3F]"
-                    onClick={() => copyToClipboard(txHash)}
-                  >
-                    <Copy className="h-3 w-3" />
-                  </Button>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="text-[#987A3F]">钱包余额:</div>
+                  <div className={`font-medium ${debugInfo.hasEnoughBalance ? "text-green-700" : "text-red-700"}`}>
+                    {debugInfo.balance} {tokenSymbol} {debugInfo.hasEnoughBalance ? "✓" : "✗"}
+                  </div>
+
+                  <div className="text-[#987A3F]">授权额度:</div>
+                  <div className={`font-medium ${debugInfo.hasEnoughAllowance ? "text-green-700" : "text-red-700"}`}>
+                    {debugInfo.allowance} {tokenSymbol} {debugInfo.hasEnoughAllowance ? "✓" : "✗"}
+                  </div>
+
+                  <div className="text-[#987A3F]">当前时间戳:</div>
+                  <div className="text-[#523805]">{debugInfo.currentTimestamp}</div>
+
+                  <div className="text-[#987A3F]">开始时间戳:</div>
+                  <div className={`font-medium ${debugInfo.isStartTimeValid ? "text-green-700" : "text-red-700"}`}>
+                    {debugInfo.parsedStartTime} {debugInfo.isStartTimeValid ? "✓" : "✗"}
+                  </div>
+
+                  <div className="text-[#987A3F]">结束时间戳:</div>
+                  <div className={`font-medium ${debugInfo.isEndTimeValid ? "text-green-700" : "text-red-700"}`}>
+                    {debugInfo.parsedEndTime} {debugInfo.isEndTimeValid ? "✓" : "✗"}
+                  </div>
+
+                  <div className="text-[#987A3F]">空投金额:</div>
+                  <div className="text-[#523805]">
+                    {debugInfo.parsedAmount} {tokenSymbol}
+                  </div>
                 </div>
+
+                {debugInfo.message && <div className="mt-2 text-green-700 font-medium">{debugInfo.message}</div>}
+
+                {debugInfo.gasEstimate && (
+                  <div className="mt-2 text-green-700 font-medium">Gas估算: {debugInfo.gasEstimate}</div>
+                )}
               </div>
             )}
-
-            <div className="bg-black/90 text-green-400 p-4 rounded-md font-mono text-xs h-60 overflow-y-auto">
-              <div className="mb-2 text-white">== 调试日志 ==</div>
-              {logs.length === 0 ? (
-                <div className="text-gray-500">等待操作...</div>
-              ) : (
-                logs.map((log, index) => <div key={index}>{log}</div>)
-              )}
-            </div>
           </CardContent>
           <CardFooter className="bg-[#F9F5EA] border-t border-[#EACC91] flex justify-between">
             <Button
-              onClick={fetchTokenInfo}
-              disabled={isLoading || !tokenAddress}
+              onClick={checkTokenStatus}
+              disabled={isLoading || !tokenAddress || tokenDecimals === null}
               className="bg-[#987A3F] hover:bg-[#523805] text-white"
             >
               {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              刷新信息
+              检查状态
             </Button>
 
             <Button
               onClick={approveToken}
-              disabled={isLoading || !tokenAddress || !spenderAddress || !amount || !tokenInfo}
+              disabled={isLoading || !tokenAddress || !amount || tokenDecimals === null}
               className="bg-[#987A3F] hover:bg-[#523805] text-white"
             >
               {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               授权代币
+            </Button>
+
+            <Button
+              onClick={tryCreateAirdrop}
+              disabled={isLoading || !tokenAddress || !amount || !startTime || !endTime || tokenDecimals === null}
+              className="bg-[#987A3F] hover:bg-[#523805] text-white"
+            >
+              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              测试创建
             </Button>
           </CardFooter>
         </Card>

@@ -1,70 +1,64 @@
+const { getSavedContractAddresses } = require("./utils");
 const hre = require("hardhat");
-
-const ownerAddress = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
-
-// Function to deploy the Cake token contract
-async function deployToken() {
-    try {
-        console.log("Deploying Cake Token...");
-        const CakeToken = await hre.ethers.getContractFactory("CAKE");
-        const cake = await CakeToken.deploy(ownerAddress);
-        await cake.waitForDeployment();
-
-        const cakeAddress = await cake.getAddress();
-        console.log(`Cake Token deployed to: ${cakeAddress}`);
-
-        // Mint total supply to the owner address
-        const totalSupply = BigInt(100000000000) * BigInt(10) ** (await cake.decimals());
-        const mintTx = await cake.mint(ownerAddress, totalSupply);
-        await mintTx.wait(); // Wait for the transaction to be mined
-        console.log(`Minted ${totalSupply} tokens to owner address: ${ownerAddress}`);
-
-        return cake;
-    } catch (error) {
-        console.error("Error deploying Cake Token:", error);
-        throw error; // Re-throw the error to stop execution if needed
-    }
+const { ethers } = hre;
+async function Airdropinit() {
+    const addresses = getSavedContractAddresses();
+    const localhost = "31337";
+    const CakeTokenAddress = addresses[localhost]?.CakeToken;
+    const TakeTokenAddress = addresses[localhost]?.TakeToken;
+    const AirdropAddress = addresses[localhost]?.Airdrop;
+    console.log("CakeTokenAddress:", CakeTokenAddress);
+    console.log("TakeTokenAddress:", TakeTokenAddress);
+    console.log("AirdropAddress:", AirdropAddress);
+    const cake = await hre.ethers.getContractAt("CAKE", CakeTokenAddress);
+    let tx = await cake.mint(
+        AirdropAddress,
+        ethers.parseEther("10000")
+    );
+    await tx.wait();
+    const balance = await cake.balanceOf(AirdropAddress);
+    console.log(tx);
+    console.log("Airdrop balance of CAKE token: ", ethers.formatEther(balance));
+    // create airdrop 
+    
 }
 
-// Function to deploy the Airdrop contract
-async function deployAirdrop() {
-    try {
-        console.log("Deploying Airdrop Contract...");
-        const Airdrop = await hre.ethers.getContractFactory("AirDrop");
-        const airdrop = await Airdrop.deploy(ownerAddress);
-        await airdrop.waitForDeployment();
-
-        const airdropAddress = await airdrop.getAddress();
-        console.log(`Airdrop Contract deployed to: ${airdropAddress}`);
-
-        return airdrop;
-    } catch (error) {
-        console.error("Error deploying Airdrop Contract:", error);
-        throw error; // Re-throw the error to stop execution if needed
-    }
+async function createAirdrop() {
+    const addresses = getSavedContractAddresses();
+    const localhost = "31337";
+    const AirdropAddress = addresses[localhost]?.Airdrop;
+    const airdrop = await hre.ethers.getContractAt("AirDrop", AirdropAddress);
+    const TakeTokenAddress = addresses[localhost]?.TakeToken;
+    const merkleRoot = "0x7f8b9a1c562e4d73b33a9c0f1d2e6a5d0c4b3f8e1a2d5c7b6e3f0a9d1e2c4d6f";
+    console.log("createAirdrop");
+    let tx = await airdrop.createAirdrop(
+        TakeTokenAddress,
+        1000,
+        Date.now(),
+        Date.now() + 1000 * 60 * 60 * 24 * 30,
+        merkleRoot
+    );
+    await tx.wait();
+    console.log(tx);
 }
 
-// Main function to execute deployment
-async function main() {
-    try {
-        //const cake = await deployToken();
-        const airdrop = await deployAirdrop();
-
-        // Optionally, approve the airdrop contract to spend tokens
-        console.log("Approving Airdrop Contract to spend tokens...");
-        const airdropAddress = await airdrop.getAddress();
-        //const approveTx = await cake.approve(airdropAddress, ethers.MaxUint256); // Approve unlimited amount
-        //await approveTx.wait(); // Wait for the transaction to be mined
-        //console.log("Airdrop Contract approved to spend tokens.");
-    } catch (error) {
-        console.error("Deployment failed:", error);
-    }
+async function getAirdrop() {
+    const addresses = getSavedContractAddresses();
+    const localhost = "31337";
+    const AirdropAddress = addresses[localhost]?.Airdrop;
+    const airdrop = await hre.ethers.getContractAt("AirDrop", AirdropAddress);
+    const TakeTokenAddress = addresses[localhost]?.TakeToken;
+    const merkleRoot = "0x7f8b9a1c562e4d73b33a9c0f1d2e6a5d0c4b3f8e1a2d5c7b6e3f0a9d1e2c4d6f";
+    console.log("getAirdrop");
+    let tx = await airdrop.getAirdropInfo(0);
+    console.log(tx);
 }
-
-// Execute the main function
-main()
+Airdropinit()
+    .then(() => createAirdrop())
+    .then(() => getAirdrop())
     .then(() => process.exit(0))
     .catch((error) => {
-        console.error("Unhandled error:", error);
+        console.error(error);
         process.exit(1);
     });
+//createAirdrop()

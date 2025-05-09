@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback } from "react"
 import { ethers } from "ethers"
 import { useWallet } from "@/contexts/wallet-context"
-import { FARM_ABI, FARM_CONTRACT_ADDRESS } from "@/contracts/farm-contract"
+import { FARM_ABI } from "@/contracts/farm-contract"
 import { useToast } from "@/hooks/use-toast"
+import { getContractAddress } from "@/utils/contract-addresses"
 
 export function useFarmContract() {
   const { walletState } = useWallet()
@@ -14,18 +15,39 @@ export function useFarmContract() {
   const [userRewards, setUserRewards] = useState<Record<number, string>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [farmContract, setFarmContract] = useState<ethers.Contract | null>(null)
+  const [contractAddress, setContractAddress] = useState<string | null>(null)
+  const [isAddressLoading, setIsAddressLoading] = useState(true)
 
-  // Initialize contract when provider is available
+  // Load contract address
   useEffect(() => {
-    if (!walletState.provider) return
+    const loadContractAddress = async () => {
+      try {
+        console.log("Loading Farm contract address...")
+        setIsAddressLoading(true)
+        const address = await getContractAddress("Farm")
+        console.log("Loaded Farm contract address:", address)
+        setContractAddress(address)
+      } catch (error) {
+        console.error("Error loading Farm contract address:", error)
+      } finally {
+        setIsAddressLoading(false)
+      }
+    }
+
+    loadContractAddress()
+  }, [])
+
+  // Initialize contract when provider and address are available
+  useEffect(() => {
+    if (!walletState.provider || !contractAddress || isAddressLoading) return
 
     const setupContract = async () => {
       try {
+        console.log("Setting up Farm contract with address:", contractAddress)
         const provider = new ethers.BrowserProvider(walletState.provider)
 
         // Read-only contract
-        const contract = new ethers.Contract(FARM_CONTRACT_ADDRESS, FARM_ABI, provider)
-
+        const contract = new ethers.Contract(contractAddress, FARM_ABI, provider)
         setFarmContract(contract)
       } catch (error) {
         console.error("Error setting up farm contract:", error)
@@ -33,7 +55,7 @@ export function useFarmContract() {
     }
 
     setupContract()
-  }, [walletState.provider])
+  }, [walletState.provider, contractAddress, isAddressLoading])
 
   // Get signed contract for transactions
   const getSignedContract = useCallback(async () => {
@@ -41,10 +63,14 @@ export function useFarmContract() {
       throw new Error("Wallet not connected")
     }
 
+    if (!contractAddress) {
+      throw new Error("Contract address not loaded")
+    }
+
     const provider = new ethers.BrowserProvider(walletState.provider)
     const signer = await provider.getSigner()
-    return new ethers.Contract(FARM_CONTRACT_ADDRESS, FARM_ABI, signer)
-  }, [walletState.provider, walletState.connected])
+    return new ethers.Contract(contractAddress, FARM_ABI, signer)
+  }, [walletState.provider, walletState.connected, contractAddress])
 
   // Convert between big numbers and human-readable formats
   const formatAmount = (amount: bigint, decimals = 18) => {
@@ -68,7 +94,10 @@ export function useFarmContract() {
 
   // Fetch all farms data
   const fetchFarms = useCallback(async () => {
-    if (!farmContract) return
+    if (!farmContract) {
+      console.log("Farm contract not initialized yet")
+      return
+    }
 
     setIsLoading(true)
     try {
@@ -236,7 +265,7 @@ export function useFarmContract() {
 
   // Stake LP tokens to a farm
   const stake = async (farmId: number, amount: string) => {
-    if (!walletState.connected) return
+    if (!walletState.connected || !contractAddress) return
 
     try {
       toast({
@@ -261,7 +290,7 @@ export function useFarmContract() {
 
       // Approve the farm contract to spend LP tokens
       const amountToStake = parseAmount(amount)
-      const approveTx = await lpTokenContract.approve(FARM_CONTRACT_ADDRESS, amountToStake)
+      const approveTx = await lpTokenContract.approve(contractAddress, amountToStake)
       await approveTx.wait()
 
       // Now stake the tokens
@@ -441,7 +470,7 @@ export function useFarmContract() {
 
   // Fund the farm contract with more reward tokens
   const fundRewards = async (amount: string) => {
-    if (!walletState.connected) return
+    if (!walletState.connected || !contractAddress) return
 
     try {
       const contract = await getSignedContract()
@@ -460,7 +489,7 @@ export function useFarmContract() {
 
       // Approve the farm contract to spend reward tokens
       const fundAmount = parseAmount(amount)
-      const approveTx = await cakeContract.approve(FARM_CONTRACT_ADDRESS, fundAmount)
+      const approveTx = await cakeContract.approve(contractAddress, fundAmount)
       await approveTx.wait()
 
       // Now fund the contract
@@ -538,6 +567,8 @@ export function useFarmContract() {
     userStakes,
     userRewards,
     isLoading,
+    contractAddress,
+    isAddressLoading,
     fetchFarms,
     stake,
     unstake,

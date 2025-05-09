@@ -14,23 +14,28 @@ import {
   AlertCircle,
   CheckCircle,
   XCircle,
+  RefreshCw,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Progress } from "@/components/ui/progress"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
+import { useToast } from "@/components/ui/use-toast"
 import { useWallet } from "@/contexts/wallet-context"
 import { useIdoContract } from "@/hooks/use-ido-contract"
 import Navbar from "@/components/navbar"
 
 export default function IdoPage() {
   const { walletState, setIsWalletModalOpen } = useWallet()
-  const { idoProjects, userAllocations, isLoading, participate, claim } = useIdoContract()
+  const { idoProjects, userAllocations, isLoading, cakeBalance, participate, claim, refund, refreshData } =
+    useIdoContract()
+  const { toast } = useToast()
 
   const [activeTab, setActiveTab] = useState("active")
   const [searchQuery, setSearchQuery] = useState("")
   const [expandedProject, setExpandedProject] = useState<number | null>(null)
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
   // 处理项目展开/折叠
   const toggleProjectExpand = (id: number) => {
@@ -56,6 +61,27 @@ export default function IdoPage() {
 
     return matchesSearch && matchesTab
   })
+
+  // 刷新数据
+  const handleRefresh = async () => {
+    setIsRefreshing(true)
+    try {
+      await refreshData()
+      toast({
+        title: "Data refreshed",
+        description: "The latest IDO information has been loaded.",
+      })
+    } catch (error) {
+      console.error("Error refreshing data:", error)
+      toast({
+        title: "Refresh failed",
+        description: "Could not refresh IDO data. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#F9F5EA] via-[#EACC91]/20 to-[#F9F5EA] font-sans pb-20">
@@ -110,6 +136,17 @@ export default function IdoPage() {
                   </TabsTrigger>
                 </TabsList>
               </Tabs>
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-[#EACC91] text-[#523805] hover:bg-[#EACC91]/20"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
             </div>
 
             <div className="relative mb-6">
@@ -121,6 +158,44 @@ export default function IdoPage() {
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
+
+            {/* 钱包连接状态和Cake余额 */}
+            {walletState.connected ? (
+              <div className="bg-[#F9F5EA] rounded-xl p-4 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="h-8 w-8 rounded-full overflow-hidden">
+                    <Image src="/cake-logo.svg" alt="CAKE" width={32} height={32} />
+                  </div>
+                  <div>
+                    <p className="text-sm text-[#523805]/70">Your CAKE Balance</p>
+                    <p className="font-medium text-[#523805]">{Number.parseFloat(cakeBalance).toFixed(4)} CAKE</p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-[#EACC91] text-[#523805] hover:bg-[#EACC91]/20"
+                  onClick={() => window.open("https://pancakeswap.finance/swap", "_blank")}
+                >
+                  Get More CAKE <ExternalLink className="h-3 w-3 ml-1" />
+                </Button>
+              </div>
+            ) : (
+              <div className="bg-[#F9F5EA] rounded-xl p-4 mb-6">
+                <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-5 w-5 text-[#523805]" />
+                    <p className="text-[#523805]">Connect your wallet to participate in IDOs</p>
+                  </div>
+                  <Button
+                    className="bg-gradient-to-r from-[#EACC91] to-[#987A3F] hover:from-[#987A3F] hover:to-[#523805] text-[#523805] hover:text-white"
+                    onClick={() => setIsWalletModalOpen(true)}
+                  >
+                    Connect Wallet
+                  </Button>
+                </div>
+              </div>
+            )}
 
             {/* IDO项目列表 */}
             {isLoading ? (
@@ -150,8 +225,10 @@ export default function IdoPage() {
                     userAllocation={userAllocations[project.id] || null}
                     onParticipate={(amount) => participate(project.id, amount)}
                     onClaim={() => claim(project.id)}
+                    onRefund={() => refund(project.id)}
                     isWalletConnected={walletState.connected}
                     onConnectWallet={() => setIsWalletModalOpen(true)}
+                    cakeBalance={cakeBalance}
                   />
                 ))}
               </div>
@@ -196,10 +273,12 @@ interface IdoProjectCardProps {
     amount: string
     claimed: boolean
   } | null
-  onParticipate: (amount: string) => void
-  onClaim: () => void
+  onParticipate: (amount: string) => Promise<boolean>
+  onClaim: () => Promise<boolean>
+  onRefund: () => Promise<boolean>
   isWalletConnected: boolean
   onConnectWallet: () => void
+  cakeBalance: string
 }
 
 function IdoProjectCard({
@@ -209,18 +288,81 @@ function IdoProjectCard({
   userAllocation,
   onParticipate,
   onClaim,
+  onRefund,
   isWalletConnected,
   onConnectWallet,
+  cakeBalance,
 }: IdoProjectCardProps) {
   const [participateAmount, setParticipateAmount] = useState("")
   const [isParticipateDialogOpen, setIsParticipateDialogOpen] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const { toast } = useToast()
 
   // 处理参与IDO
-  const handleParticipate = () => {
+  const handleParticipate = async () => {
     if (!participateAmount || Number.parseFloat(participateAmount) <= 0) return
-    onParticipate(participateAmount)
-    setParticipateAmount("")
-    setIsParticipateDialogOpen(false)
+
+    setIsProcessing(true)
+    try {
+      await onParticipate(participateAmount)
+      toast({
+        title: "Participation successful",
+        description: `You have successfully participated in ${project.name} IDO with ${participateAmount} CAKE.`,
+      })
+      setParticipateAmount("")
+      setIsParticipateDialogOpen(false)
+    } catch (error) {
+      console.error("Error participating in IDO:", error)
+      toast({
+        title: "Participation failed",
+        description: "There was an error while participating in the IDO. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  // 处理领取代币
+  const handleClaim = async () => {
+    setIsProcessing(true)
+    try {
+      await onClaim()
+      toast({
+        title: "Tokens claimed",
+        description: `You have successfully claimed your ${project.tokenSymbol} tokens.`,
+      })
+    } catch (error) {
+      console.error("Error claiming tokens:", error)
+      toast({
+        title: "Claim failed",
+        description: "There was an error while claiming your tokens. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  // 处理退款
+  const handleRefund = async () => {
+    setIsProcessing(true)
+    try {
+      await onRefund()
+      toast({
+        title: "Refund successful",
+        description: `You have successfully received a refund for your participation in ${project.name} IDO.`,
+      })
+    } catch (error) {
+      console.error("Error requesting refund:", error)
+      toast({
+        title: "Refund failed",
+        description: "There was an error while processing your refund. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsProcessing(false)
+    }
   }
 
   // 格式化日期
@@ -309,7 +451,7 @@ function IdoProjectCard({
             <div className="flex items-start gap-4">
               <div className="relative h-16 w-16 rounded-full overflow-hidden border-2 border-[#EACC91] flex-shrink-0">
                 <Image
-                  src={project.tokenLogo || "/placeholder.svg"}
+                  src={project.tokenLogo || "/placeholder.svg?height=64&width=64&query=token"}
                   alt={project.name}
                   width={64}
                   height={64}
@@ -338,7 +480,7 @@ function IdoProjectCard({
               <div className="flex justify-between text-xs text-[#523805]/70 mb-1">
                 <span>Progress</span>
                 <span>
-                  {formatNumber(project.totalRaised)} / {formatNumber(project.hardCap)} ETH
+                  {formatNumber(project.totalRaised)} / {formatNumber(project.hardCap)} CAKE
                 </span>
               </div>
               <Progress
@@ -382,21 +524,21 @@ function IdoProjectCard({
                   <div className="flex justify-between">
                     <span className="text-sm text-[#523805]/70">Token Price</span>
                     <span className="text-sm font-medium text-[#523805]">
-                      1 {project.tokenSymbol} = ${formatNumber(project.price, 4)}
+                      1 {project.tokenSymbol} = {formatNumber(project.price, 4)} CAKE
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-[#523805]/70">Fundraising Goal</span>
-                    <span className="text-sm font-medium text-[#523805]">{formatNumber(project.hardCap)} ETH</span>
+                    <span className="text-sm font-medium text-[#523805]">{formatNumber(project.hardCap)} CAKE</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-[#523805]/70">Minimum Goal</span>
-                    <span className="text-sm font-medium text-[#523805]">{formatNumber(project.softCap)} ETH</span>
+                    <span className="text-sm font-medium text-[#523805]">{formatNumber(project.softCap)} CAKE</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-[#523805]/70">Allocation</span>
                     <span className="text-sm font-medium text-[#523805]">
-                      {formatNumber(project.minAllocation)} - {formatNumber(project.maxAllocation)} ETH
+                      {formatNumber(project.minAllocation)} - {formatNumber(project.maxAllocation)} CAKE
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -526,7 +668,7 @@ function IdoProjectCard({
                     <div className="flex justify-between">
                       <span className="text-sm text-[#523805]/70">Contributed</span>
                       <span className="text-sm font-medium text-[#523805]">
-                        {formatNumber(Number.parseFloat(userAllocation.amount))} ETH
+                        {formatNumber(Number.parseFloat(userAllocation.amount))} CAKE
                       </span>
                     </div>
                     <div className="flex justify-between">
@@ -548,10 +690,17 @@ function IdoProjectCard({
                   <DialogTrigger asChild>
                     <Button
                       className="w-full bg-gradient-to-r from-[#EACC91] to-[#987A3F] hover:from-[#987A3F] hover:to-[#523805] text-[#523805] hover:text-white"
-                      disabled={!isWalletConnected}
+                      disabled={!isWalletConnected || isProcessing}
                       onClick={() => (isWalletConnected ? undefined : onConnectWallet())}
                     >
-                      Participate in IDO
+                      {isProcessing ? (
+                        <>
+                          <div className="animate-spin mr-2 h-4 w-4 border-2 border-b-transparent border-white rounded-full"></div>
+                          Processing...
+                        </>
+                      ) : (
+                        "Participate in IDO"
+                      )}
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="sm:max-w-md rounded-2xl border border-[#EACC91]">
@@ -563,7 +712,7 @@ function IdoProjectCard({
                         <div className="flex justify-between mb-2">
                           <span className="text-[#523805]/70">Amount to Contribute</span>
                           <span className="text-sm text-[#523805]/70">
-                            Min: {project.minAllocation} ETH | Max: {project.maxAllocation} ETH
+                            Min: {project.minAllocation} CAKE | Max: {project.maxAllocation} CAKE
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
@@ -576,9 +725,9 @@ function IdoProjectCard({
                           />
                           <div className="flex items-center gap-2 bg-white rounded-full px-3 py-1.5 border border-[#EACC91]">
                             <div className="relative h-5 w-5">
-                              <Image src="/eth-logo.svg" alt="ETH" width={20} height={20} className="rounded-full" />
+                              <Image src="/cake-logo.svg" alt="CAKE" width={20} height={20} className="rounded-full" />
                             </div>
-                            <span className="text-sm font-medium text-[#523805]">ETH</span>
+                            <span className="text-sm font-medium text-[#523805]">CAKE</span>
                           </div>
                         </div>
                         <div className="flex justify-between mt-2">
@@ -592,6 +741,13 @@ function IdoProjectCard({
                         </div>
                       </div>
 
+                      <div className="flex justify-between items-center mb-4">
+                        <span className="text-sm text-[#523805]/70">Your CAKE Balance:</span>
+                        <span className="text-sm font-medium text-[#523805]">
+                          {Number.parseFloat(cakeBalance).toFixed(4)} CAKE
+                        </span>
+                      </div>
+
                       <div className="text-xs text-[#523805]/70 mb-4">
                         By participating in this IDO, you agree to the terms and conditions. Tokens will be distributed
                         according to the vesting schedule after the IDO ends.
@@ -602,6 +758,7 @@ function IdoProjectCard({
                         variant="outline"
                         onClick={() => setIsParticipateDialogOpen(false)}
                         className="border-[#EACC91] text-[#523805]"
+                        disabled={isProcessing}
                       >
                         Cancel
                       </Button>
@@ -609,12 +766,21 @@ function IdoProjectCard({
                         onClick={handleParticipate}
                         className="bg-gradient-to-r from-[#EACC91] to-[#987A3F] hover:from-[#987A3F] hover:to-[#523805] text-[#523805] hover:text-white"
                         disabled={
+                          isProcessing ||
                           !participateAmount ||
                           Number.parseFloat(participateAmount) < project.minAllocation ||
-                          Number.parseFloat(participateAmount) > project.maxAllocation
+                          Number.parseFloat(participateAmount) > project.maxAllocation ||
+                          Number.parseFloat(participateAmount) > Number.parseFloat(cakeBalance)
                         }
                       >
-                        Confirm
+                        {isProcessing ? (
+                          <>
+                            <div className="animate-spin mr-2 h-4 w-4 border-2 border-b-transparent border-[#523805] rounded-full"></div>
+                            Processing...
+                          </>
+                        ) : (
+                          "Confirm"
+                        )}
                       </Button>
                     </DialogFooter>
                   </DialogContent>
@@ -624,9 +790,34 @@ function IdoProjectCard({
               {project.status === "ended" && userAllocation && !userAllocation.claimed && (
                 <Button
                   className="w-full bg-gradient-to-r from-[#EACC91] to-[#987A3F] hover:from-[#987A3F] hover:to-[#523805] text-[#523805] hover:text-white"
-                  onClick={onClaim}
+                  onClick={handleClaim}
+                  disabled={isProcessing}
                 >
-                  Claim Tokens
+                  {isProcessing ? (
+                    <>
+                      <div className="animate-spin mr-2 h-4 w-4 border-2 border-b-transparent border-[#523805] rounded-full"></div>
+                      Processing...
+                    </>
+                  ) : (
+                    "Claim Tokens"
+                  )}
+                </Button>
+              )}
+
+              {project.isCancelled && userAllocation && !userAllocation.claimed && (
+                <Button
+                  className="w-full bg-gradient-to-r from-[#EACC91] to-[#987A3F] hover:from-[#987A3F] hover:to-[#523805] text-[#523805] hover:text-white mt-2"
+                  onClick={handleRefund}
+                  disabled={isProcessing}
+                >
+                  {isProcessing ? (
+                    <>
+                      <div className="animate-spin mr-2 h-4 w-4 border-2 border-b-transparent border-[#523805] rounded-full"></div>
+                      Processing...
+                    </>
+                  ) : (
+                    "Request Refund"
+                  )}
                 </Button>
               )}
 
@@ -637,8 +828,8 @@ function IdoProjectCard({
                     <div>
                       <p className="text-sm font-medium text-[#523805] mb-1">Coming Soon</p>
                       <p className="text-xs text-[#523805]/80">
-                        This IDO will start on {formatDate(project.startTime)}. Make sure you have ETH in your wallet to
-                        participate.
+                        This IDO will start on {formatDate(project.startTime)}. Make sure you have CAKE in your wallet
+                        to participate.
                       </p>
                     </div>
                   </div>

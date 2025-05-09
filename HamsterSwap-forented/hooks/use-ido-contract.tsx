@@ -1,213 +1,550 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { ethers } from "ethers"
 import { useWallet } from "@/contexts/wallet-context"
+import { getContractAddress } from "@/utils/contract-addresses"
+import { IDO_ABI } from "@/contracts/ido-contract"
 
-// 模拟的IDO项目数据
-const mockIdoProjects = [
-  {
-    id: 1,
-    name: "HamsterSwap Token",
-    description: "The native token of the HamsterSwap platform, powering the cutest DeFi ecosystem in the galaxy.",
-    tokenSymbol: "HAMSTER",
-    tokenLogo: "/hamster-logo.svg",
-    status: "active" as const,
-    startTime: "2023-12-01T10:00:00Z",
-    endTime: "2023-12-15T10:00:00Z",
-    hardCap: 1000,
-    softCap: 500,
-    totalRaised: 750,
-    price: 0.05,
-    minAllocation: 0.1,
-    maxAllocation: 5,
-    tokenDistribution: "After IDO ends",
-    website: "https://hamsterswap.example",
-    whitepaper: "https://hamsterswap.example/whitepaper",
-    socials: {
-      twitter: "https://twitter.com/hamsterswap",
-      telegram: "https://t.me/hamsterswap",
-      discord: "https://discord.gg/hamsterswap",
-    },
-  },
-  {
-    id: 2,
-    name: "CheeseFi",
-    description:
-      "A yield farming protocol designed for hamsters and other small rodents to maximize their cheese yields.",
-    tokenSymbol: "CHEESE",
-    tokenLogo: "/cake-logo.svg",
-    status: "upcoming" as const,
-    startTime: "2023-12-20T14:00:00Z",
-    endTime: "2024-01-05T14:00:00Z",
-    hardCap: 800,
-    softCap: 300,
-    totalRaised: 0,
-    price: 0.02,
-    minAllocation: 0.1,
-    maxAllocation: 3,
-    tokenDistribution: "7 days after IDO ends",
-    website: "https://cheesefi.example",
-    whitepaper: "https://cheesefi.example/whitepaper",
-    socials: {
-      twitter: "https://twitter.com/cheesefi",
-      telegram: "https://t.me/cheesefi",
-    },
-  },
-  {
-    id: 3,
-    name: "NutStorage",
-    description: "Decentralized storage solution for hamsters to safely store their nuts and seeds for winter.",
-    tokenSymbol: "NUT",
-    tokenLogo: "/ltc-logo.svg",
-    status: "ended" as const,
-    startTime: "2023-11-01T09:00:00Z",
-    endTime: "2023-11-15T09:00:00Z",
-    hardCap: 500,
-    softCap: 200,
-    totalRaised: 500,
-    price: 0.01,
-    minAllocation: 0.1,
-    maxAllocation: 2,
-    tokenDistribution: "Immediate",
-    website: "https://nutstorage.example",
-    whitepaper: "https://nutstorage.example/whitepaper",
-    socials: {
-      twitter: "https://twitter.com/nutstorage",
-      telegram: "https://t.me/nutstorage",
-      discord: "https://discord.gg/nutstorage",
-      medium: "https://medium.com/nutstorage",
-    },
-  },
-  {
-    id: 4,
-    name: "WheelRunner",
-    description: "Gamified fitness platform where hamsters can earn tokens by running on their wheels.",
-    tokenSymbol: "WHEEL",
-    tokenLogo: "/eth-logo.svg",
-    status: "ended" as const,
-    startTime: "2023-10-10T12:00:00Z",
-    endTime: "2023-10-25T12:00:00Z",
-    hardCap: 300,
-    softCap: 100,
-    totalRaised: 250,
-    price: 0.008,
-    minAllocation: 0.05,
-    maxAllocation: 1.5,
-    tokenDistribution: "30 days vesting",
-    website: "https://wheelrunner.example",
-    whitepaper: "https://wheelrunner.example/whitepaper",
-    socials: {
-      twitter: "https://twitter.com/wheelrunner",
-      telegram: "https://t.me/wheelrunner",
-    },
-  },
-]
+// 定义项目类型
+export interface IdoProject {
+  id: number
+  name: string
+  description: string
+  tokenSymbol: string
+  tokenLogo: string
+  tokenAddress: string
+  status: "upcoming" | "active" | "ended" | "cancelled"
+  startTime: string
+  endTime: string
+  hardCap: number
+  softCap: number
+  totalRaised: number
+  price: number
+  minAllocation: number
+  maxAllocation: number
+  tokenDistribution: string
+  website: string
+  whitepaper: string
+  socials: {
+    twitter?: string
+    telegram?: string
+    discord?: string
+    medium?: string
+  }
+}
 
 export function useIdoContract() {
   const { walletState } = useWallet()
-  const [idoProjects, setIdoProjects] = useState(mockIdoProjects)
+  const [idoProjects, setIdoProjects] = useState<IdoProject[]>([])
   const [userAllocations, setUserAllocations] = useState<Record<number, { amount: string; claimed: boolean } | null>>(
     {},
   )
   const [isLoading, setIsLoading] = useState(true)
+  const [cakeBalance, setCakeBalance] = useState<string>("0")
+  const [contractAddress, setContractAddress] = useState<string | null>(null)
 
-  // 模拟获取IDO项目数据
-  const fetchIdoProjects = useCallback(async () => {
-    setIsLoading(true)
-
-    // 模拟API调用延迟
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-
-    // 如果钱包已连接，模拟获取用户分配数据
-    if (walletState.connected) {
-      // 模拟用户分配数据
-      const mockUserAllocations: Record<number, { amount: string; claimed: boolean } | null> = {
-        1: { amount: "2.5", claimed: false },
-        3: { amount: "1.0", claimed: true },
-        4: { amount: "0.5", claimed: false },
+  // 加载合约地址
+  useEffect(() => {
+    const loadContractAddress = async () => {
+      try {
+        const address = await getContractAddress("IDO")
+        setContractAddress(address)
+      } catch (error) {
+        console.error("Error loading IDO contract address:", error)
       }
-
-      setUserAllocations(mockUserAllocations)
-    } else {
-      // 如果钱包未连接，清空用户数据
-      setUserAllocations({})
     }
 
-    setIsLoading(false)
-  }, [walletState.connected])
+    loadContractAddress()
+  }, [])
+
+  // 获取项目状态
+  const getProjectStatus = useCallback(
+    (startTime: string, endTime: string, isCancelled: boolean): "upcoming" | "active" | "ended" | "cancelled" => {
+      if (isCancelled) return "cancelled"
+
+      const now = new Date()
+      const start = new Date(startTime)
+      const end = new Date(endTime)
+
+      if (now < start) return "upcoming"
+      if (now > end) return "ended"
+      return "active"
+    },
+    [],
+  )
+
+  // 获取代币Logo
+  const getTokenLogo = useCallback((symbol: string): string => {
+    const logos: Record<string, string> = {
+      HAMSTER: "/hamster-logo.svg",
+      CAKE: "/cake-logo.svg",
+      ETH: "/eth-logo.svg",
+      USDT: "/usdt-logo.svg",
+      USDC: "/usdc-logo.svg",
+      DAI: "/dai-logo.svg",
+      WBTC: "/wbtc-logo.svg",
+      LINK: "/link-logo.svg",
+      UNI: "/uni-logo.svg",
+      AAVE: "/aave-logo.svg",
+      COMP: "/comp-logo.svg",
+      LTC: "/ltc-logo.svg",
+    }
+    return logos[symbol] || "/digital-token.png"
+  }, [])
+
+  // 获取IDO合约实例
+  const getIdoContract = useCallback(
+    async (withSigner = false) => {
+      if (!walletState.provider) throw new Error("Provider not available")
+
+      const address = await getContractAddress("IDO")
+      if (!address) throw new Error("IDO contract address not found")
+
+      return new ethers.Contract(
+        address,
+        IDO_ABI,
+        withSigner && walletState.signer ? walletState.signer : walletState.provider,
+      )
+    },
+    [walletState.provider, walletState.signer],
+  )
+
+  // 获取代币信息
+  const getTokenInfo = useCallback(
+    async (tokenAddress: string) => {
+      if (!walletState.provider) throw new Error("Provider not available")
+
+      try {
+        const tokenAbi = [
+          "function name() view returns (string)",
+          "function symbol() view returns (string)",
+          "function decimals() view returns (uint8)",
+        ]
+
+        const tokenContract = new ethers.Contract(tokenAddress, tokenAbi, walletState.provider)
+
+        const [name, symbol, decimals] = await Promise.all([
+          tokenContract.name(),
+          tokenContract.symbol(),
+          tokenContract.decimals(),
+        ])
+
+        return { name, symbol, decimals }
+      } catch (error) {
+        console.error("Error fetching token info:", error)
+        return { name: "Unknown Token", symbol: "UNKNOWN", decimals: 18 }
+      }
+    },
+    [walletState.provider],
+  )
+
+  // 获取CAKE余额
+  const getCakeBalance = useCallback(
+    async (address: string) => {
+      if (!walletState.provider) throw new Error("Provider not available")
+
+      try {
+        const cakeAddress = await getContractAddress("CAKE")
+        if (!cakeAddress) throw new Error("CAKE token address not found")
+
+        const tokenAbi = ["function balanceOf(address) view returns (uint256)"]
+        const tokenContract = new ethers.Contract(cakeAddress, tokenAbi, walletState.provider)
+
+        const balance = await tokenContract.balanceOf(address)
+        return ethers.utils.formatEther(balance)
+      } catch (error) {
+        console.error("Error fetching CAKE balance:", error)
+        return "0"
+      }
+    },
+    [walletState.provider],
+  )
+
+  // 获取用户分配
+  const getUserAllocation = useCallback(
+    async (projectId: number, userAddress: string) => {
+      try {
+        const idoContract = await getIdoContract()
+        const allocation = await idoContract.userAllocations(projectId, userAddress)
+
+        return {
+          amount: ethers.utils.formatEther(allocation.amount),
+          claimed: allocation.claimed,
+        }
+      } catch (error) {
+        console.error(`Error fetching allocation for project ${projectId}:`, error)
+        return null
+      }
+    },
+    [getIdoContract],
+  )
+
+  // 获取所有项目
+  const getAllProjects = useCallback(async () => {
+    try {
+      const idoContract = await getIdoContract()
+      const projectCount = await idoContract.projectCount()
+
+      const projects = []
+      for (let i = 1; i <= projectCount.toNumber(); i++) {
+        try {
+          const projectData = await idoContract.projects(i)
+          projects.push({
+            projectId: i,
+            owner: projectData.owner,
+            tokenAddress: projectData.tokenAddress,
+            tokenPrice: ethers.utils.formatEther(projectData.tokenPrice),
+            softCap: ethers.utils.formatEther(projectData.softCap),
+            hardCap: ethers.utils.formatEther(projectData.hardCap),
+            minAllocation: ethers.utils.formatEther(projectData.minAllocation),
+            maxAllocation: ethers.utils.formatEther(projectData.maxAllocation),
+            startTime: new Date(projectData.startTime.toNumber() * 1000).toISOString(),
+            endTime: new Date(projectData.endTime.toNumber() * 1000).toISOString(),
+            totalRaised: ethers.utils.formatEther(projectData.totalRaised),
+            isFinalized: projectData.isFinalized,
+            isCancelled: projectData.isCancelled,
+          })
+        } catch (error) {
+          console.error(`Error fetching project ${i}:`, error)
+        }
+      }
+
+      return projects
+    } catch (error) {
+      console.error("Error fetching all projects:", error)
+      return []
+    }
+  }, [getIdoContract])
+
+  // 获取项目参与者
+  const getProjectParticipants = useCallback(
+    async (projectId: number) => {
+      try {
+        const idoContract = await getIdoContract()
+        const participantCount = await idoContract.getParticipantCount(projectId)
+
+        const participants = []
+        for (let i = 0; i < participantCount.toNumber(); i++) {
+          const address = await idoContract.projectParticipants(projectId, i)
+          const allocation = await idoContract.userAllocations(projectId, address)
+
+          participants.push({
+            address,
+            amount: ethers.utils.formatEther(allocation.amount),
+            claimed: allocation.claimed,
+          })
+        }
+
+        return participants
+      } catch (error) {
+        console.error(`Error fetching participants for project ${projectId}:`, error)
+        return []
+      }
+    },
+    [getIdoContract],
+  )
+
+  // 参与IDO
+  const participate = useCallback(
+    async (projectId: number, amount: string) => {
+      if (!walletState.signer) throw new Error("Signer not available")
+
+      try {
+        const idoContract = await getIdoContract(true)
+        const tx = await idoContract.participate(projectId, { value: ethers.utils.parseEther(amount) })
+        await tx.wait()
+        return true
+      } catch (error) {
+        console.error("Error participating in IDO:", error)
+        throw error
+      }
+    },
+    [getIdoContract, walletState.signer],
+  )
+
+  // 领取代币
+  const claim = useCallback(
+    async (projectId: number) => {
+      if (!walletState.signer) throw new Error("Signer not available")
+
+      try {
+        const idoContract = await getIdoContract(true)
+        const tx = await idoContract.claimTokens(projectId)
+        await tx.wait()
+        return true
+      } catch (error) {
+        console.error("Error claiming tokens:", error)
+        throw error
+      }
+    },
+    [getIdoContract, walletState.signer],
+  )
+
+  // 申请退款
+  const refund = useCallback(
+    async (projectId: number) => {
+      if (!walletState.signer) throw new Error("Signer not available")
+
+      try {
+        const idoContract = await getIdoContract(true)
+        const tx = await idoContract.requestRefund(projectId)
+        await tx.wait()
+        return true
+      } catch (error) {
+        console.error("Error requesting refund:", error)
+        throw error
+      }
+    },
+    [getIdoContract, walletState.signer],
+  )
+
+  // 创建项目
+  const createProject = useCallback(
+    async (
+      owner: string,
+      tokenAddress: string,
+      tokenPrice: string,
+      softCap: string,
+      hardCap: string,
+      minAllocation: string,
+      maxAllocation: string,
+      startTime: number,
+      endTime: number,
+    ) => {
+      if (!walletState.signer) throw new Error("Signer not available")
+
+      try {
+        const idoContract = await getIdoContract(true)
+        const tx = await idoContract.createProject(
+          owner,
+          tokenAddress,
+          ethers.utils.parseEther(tokenPrice),
+          ethers.utils.parseEther(softCap),
+          ethers.utils.parseEther(hardCap),
+          ethers.utils.parseEther(minAllocation),
+          ethers.utils.parseEther(maxAllocation),
+          startTime,
+          endTime,
+        )
+        const receipt = await tx.wait()
+
+        // Get project ID from event
+        const event = receipt.events?.find((e) => e.event === "ProjectCreated")
+        const projectId = event?.args?.projectId.toNumber()
+
+        return projectId
+      } catch (error) {
+        console.error("Error creating project:", error)
+        throw error
+      }
+    },
+    [getIdoContract, walletState.signer],
+  )
+
+  // 添加到白名单
+  const addToWhitelist = useCallback(
+    async (projectId: number, addresses: string[]) => {
+      if (!walletState.signer) throw new Error("Signer not available")
+
+      try {
+        const idoContract = await getIdoContract(true)
+        const tx = await idoContract.addToWhitelist(projectId, addresses)
+        await tx.wait()
+        return true
+      } catch (error) {
+        console.error("Error adding to whitelist:", error)
+        throw error
+      }
+    },
+    [getIdoContract, walletState.signer],
+  )
+
+  // 从白名单移除
+  const removeFromWhitelist = useCallback(
+    async (projectId: number, addresses: string[]) => {
+      if (!walletState.signer) throw new Error("Signer not available")
+
+      try {
+        const idoContract = await getIdoContract(true)
+        const tx = await idoContract.removeFromWhitelist(projectId, addresses)
+        await tx.wait()
+        return true
+      } catch (error) {
+        console.error("Error removing from whitelist:", error)
+        throw error
+      }
+    },
+    [getIdoContract, walletState.signer],
+  )
+
+  // 完成项目
+  const finalizeProject = useCallback(
+    async (projectId: number) => {
+      if (!walletState.signer) throw new Error("Signer not available")
+
+      try {
+        const idoContract = await getIdoContract(true)
+        const tx = await idoContract.finalizeProject(projectId)
+        await tx.wait()
+        return true
+      } catch (error) {
+        console.error("Error finalizing project:", error)
+        throw error
+      }
+    },
+    [getIdoContract, walletState.signer],
+  )
+
+  // 取消项目
+  const cancelProject = useCallback(
+    async (projectId: number) => {
+      if (!walletState.signer) throw new Error("Signer not available")
+
+      try {
+        const idoContract = await getIdoContract(true)
+        const tx = await idoContract.cancelProject(projectId)
+        await tx.wait()
+        return true
+      } catch (error) {
+        console.error("Error cancelling project:", error)
+        throw error
+      }
+    },
+    [getIdoContract, walletState.signer],
+  )
+
+  // 获取项目数据
+  const fetchIdoProjects = useCallback(async () => {
+    if (!walletState.provider) {
+      console.log("Cannot fetch IDO projects: provider missing")
+      return
+    }
+
+    setIsLoading(true)
+
+    try {
+      // 获取链上项目数据
+      const projects = await getAllProjects()
+
+      // 转换为前端需要的格式
+      const formattedProjects: IdoProject[] = await Promise.all(
+        projects.map(async (project) => {
+          // 获取代币信息
+          let tokenInfo
+          try {
+            tokenInfo = await getTokenInfo(project.tokenAddress)
+          } catch (error) {
+            console.error("Error fetching token info:", error)
+            tokenInfo = { symbol: "UNKNOWN", name: "Unknown Token" }
+          }
+
+          const status = getProjectStatus(project.startTime, project.endTime, project.isCancelled)
+
+          return {
+            id: project.projectId,
+            name: tokenInfo.name || `Project ${project.projectId}`,
+            description: `${tokenInfo.name || `Project ${project.projectId}`} is launching through our IDO platform.`,
+            tokenSymbol: tokenInfo.symbol,
+            tokenLogo: getTokenLogo(tokenInfo.symbol),
+            tokenAddress: project.tokenAddress,
+            status,
+            startTime: project.startTime,
+            endTime: project.endTime,
+            hardCap: Number.parseFloat(project.hardCap),
+            softCap: Number.parseFloat(project.softCap),
+            totalRaised: Number.parseFloat(project.totalRaised),
+            price: Number.parseFloat(project.tokenPrice),
+            minAllocation: Number.parseFloat(project.minAllocation),
+            maxAllocation: Number.parseFloat(project.maxAllocation),
+            tokenDistribution: status === "ended" ? "Immediate" : "After IDO ends",
+            website: `https://example.com/projects/${project.projectId}`,
+            whitepaper: `https://example.com/projects/${project.projectId}/whitepaper`,
+            socials: {
+              twitter: `https://twitter.com/example`,
+              telegram: `https://t.me/example`,
+              discord: `https://discord.gg/example`,
+            },
+          }
+        }),
+      )
+
+      setIdoProjects(formattedProjects)
+
+      // 如果钱包已连接，获取用户分配数据
+      if (walletState.connected && walletState.address) {
+        const allocations: Record<number, { amount: string; claimed: boolean } | null> = {}
+
+        for (const project of projects) {
+          try {
+            const allocation = await getUserAllocation(project.projectId, walletState.address)
+            allocations[project.projectId] = allocation
+          } catch (error) {
+            console.error(`Error fetching allocation for project ${project.projectId}:`, error)
+            allocations[project.projectId] = null
+          }
+        }
+
+        setUserAllocations(allocations)
+
+        // 获取Cake余额
+        try {
+          const balance = await getCakeBalance(walletState.address)
+          setCakeBalance(balance)
+        } catch (error) {
+          console.error("Error fetching Cake balance:", error)
+          setCakeBalance("0")
+        }
+      } else {
+        // 如果钱包未连接，清空用户数据
+        setUserAllocations({})
+        setCakeBalance("0")
+      }
+    } catch (error) {
+      console.error("Error fetching IDO projects:", error)
+      setIdoProjects([])
+    } finally {
+      setIsLoading(false)
+    }
+  }, [
+    walletState.provider,
+    walletState.connected,
+    walletState.address,
+    getProjectStatus,
+    getTokenLogo,
+    getTokenInfo,
+    getAllProjects,
+    getUserAllocation,
+    getCakeBalance,
+  ])
 
   // 初始加载和钱包连接状态变化时获取数据
   useEffect(() => {
-    fetchIdoProjects()
-  }, [fetchIdoProjects])
-
-  // 参与IDO
-  const participate = async (projectId: number, amount: string) => {
-    if (!walletState.connected) return
-
-    // 模拟参与过程
-    console.log(`Participating in IDO ${projectId} with ${amount} ETH`)
-
-    // 模拟交易延迟
-    await new Promise((resolve) => setTimeout(resolve, 1500))
-
-    // 更新用户分配数据
-    setUserAllocations((prev) => ({
-      ...prev,
-      [projectId]: { amount, claimed: false },
-    }))
-
-    // 更新项目总筹集金额
-    setIdoProjects((prev) =>
-      prev.map((project) =>
-        project.id === projectId
-          ? { ...project, totalRaised: project.totalRaised + Number.parseFloat(amount) }
-          : project,
-      ),
-    )
-
-    // 模拟成功消息
-    alert(`Successfully participated in ${idoProjects.find((p) => p.id === projectId)?.name} IDO with ${amount} ETH`)
-  }
-
-  // 领取代币
-  const claim = async (projectId: number) => {
-    if (!walletState.connected) return
-
-    // 模拟领取过程
-    console.log(`Claiming tokens from IDO ${projectId}`)
-
-    // 模拟交易延迟
-    await new Promise((resolve) => setTimeout(resolve, 1500))
-
-    // 更新用户分配数据
-    setUserAllocations((prev) => {
-      const userAllocation = prev[projectId]
-      if (!userAllocation) return prev
-
-      return {
-        ...prev,
-        [projectId]: { ...userAllocation, claimed: true },
-      }
-    })
-
-    // 获取项目和用户分配
-    const project = idoProjects.find((p) => p.id === projectId)
-    const allocation = userAllocations[projectId]
-
-    if (project && allocation) {
-      const tokenAmount = Number.parseFloat(allocation.amount) / project.price
-
-      // 模拟成功消息
-      alert(`Successfully claimed ${tokenAmount.toFixed(2)} ${project.tokenSymbol} tokens from ${project.name} IDO`)
+    if (walletState.provider) {
+      fetchIdoProjects()
     }
-  }
+  }, [fetchIdoProjects, walletState.provider, walletState.connected])
+
+  // 刷新数据
+  const refreshData = useCallback(() => {
+    return fetchIdoProjects()
+  }, [fetchIdoProjects])
 
   return {
     idoProjects,
     userAllocations,
     isLoading,
+    cakeBalance,
+    contractAddress,
     participate,
     claim,
+    refund,
+    refreshData,
+    createProject,
+    addToWhitelist,
+    removeFromWhitelist,
+    finalizeProject,
+    cancelProject,
+    getProjectParticipants,
   }
 }

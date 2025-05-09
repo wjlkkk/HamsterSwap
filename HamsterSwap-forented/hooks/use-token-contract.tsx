@@ -3,34 +3,8 @@
 import { useState, useEffect, useCallback } from "react"
 import { useWallet } from "@/contexts/wallet-context"
 import { ethers } from "ethers"
-
-// ERC20 ABI - 包含标准方法和扩展方法
-const ERC20_ABI = [
-  // 标准ERC20方法
-  "function name() view returns (string)",
-  "function symbol() view returns (string)",
-  "function decimals() view returns (uint8)",
-  "function totalSupply() view returns (uint256)",
-  "function balanceOf(address owner) view returns (uint256)",
-  "function allowance(address owner, address spender) view returns (uint256)",
-  "function transfer(address to, uint256 amount) returns (bool)",
-  "function approve(address spender, uint256 amount) returns (bool)",
-  "function transferFrom(address sender, address recipient, uint256 amount) returns (bool)",
-
-  // 扩展方法 - 所有者功能
-  "function mint(address to, uint256 amount) returns (bool)",
-  "function burn(uint256 amount) returns (bool)",
-  "function pause() returns (bool)",
-  "function unpause() returns (bool)",
-  "function paused() view returns (bool)",
-  "function owner() view returns (address)",
-
-  // 事件
-  "event Transfer(address indexed from, address indexed to, uint256 value)",
-  "event Approval(address indexed owner, address indexed spender, uint256 value)",
-  "event Paused(address account)",
-  "event Unpaused(address account)",
-]
+import { ERC20_ABI } from "@/contracts/token-contract"
+import { getContractAddress } from "@/utils/contract-addresses"
 
 export function useTokenContract(tokenAddress: string) {
   const { walletState } = useWallet()
@@ -42,6 +16,23 @@ export function useTokenContract(tokenAddress: string) {
   const [isPaused, setIsPaused] = useState<boolean>(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [airdropContractAddress, setAirdropContractAddress] = useState<string | null>(null)
+
+  // 加载空投合约地址
+  useEffect(() => {
+    const loadAirdropAddress = async () => {
+      try {
+        console.log("Loading Airdrop contract address...")
+        const address = await getContractAddress("Airdrop")
+        console.log("Loaded Airdrop contract address:", address)
+        setAirdropContractAddress(address)
+      } catch (err) {
+        console.error("Error loading Airdrop contract address:", err)
+      }
+    }
+
+    loadAirdropAddress()
+  }, [])
 
   // 获取代币信息
   const fetchTokenInfo = useCallback(async () => {
@@ -51,6 +42,7 @@ export function useTokenContract(tokenAddress: string) {
     setError(null)
 
     try {
+      console.log("Fetching token info for address:", tokenAddress)
       const provider = new ethers.BrowserProvider(walletState.provider)
       const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider)
 
@@ -61,6 +53,8 @@ export function useTokenContract(tokenAddress: string) {
         tokenContract.decimals(),
         tokenContract.totalSupply(),
       ])
+
+      console.log("Token info fetched:", { name, symbol, decimals: decimals.toString() })
 
       // 尝试获取扩展信息
       let ownerAddress = null
@@ -105,10 +99,13 @@ export function useTokenContract(tokenAddress: string) {
     setError(null)
 
     try {
+      console.log("Fetching token balance for address:", walletState.address)
       const provider = new ethers.BrowserProvider(walletState.provider)
       const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider)
       const balanceValue = await tokenContract.balanceOf(walletState.address)
-      setBalance(ethers.formatUnits(balanceValue, tokenInfo.decimals))
+      const formattedBalance = ethers.formatUnits(balanceValue, tokenInfo.decimals)
+      console.log("Token balance fetched:", formattedBalance)
+      setBalance(formattedBalance)
     } catch (err) {
       console.error("Error fetching token balance:", err)
       setError("获取余额失败")
@@ -128,7 +125,13 @@ export function useTokenContract(tokenAddress: string) {
       try {
         const provider = new ethers.BrowserProvider(walletState.provider)
         // 使用提供的spender或默认使用空投合约地址
-        const spenderAddress = spender || "0x5FbDB2315678afecb367f032d93F642f64180aa3" // 空投合约地址
+        const spenderAddress = spender || airdropContractAddress
+
+        if (!spenderAddress) {
+          console.error("No spender address provided and Airdrop contract address not loaded")
+          setError("获取授权额度失败: 没有提供spender地址且空投合约地址未加载")
+          return
+        }
 
         console.log("获取授权额度:", {
           owner: walletState.address,
@@ -146,17 +149,17 @@ export function useTokenContract(tokenAddress: string) {
         setAllowance(formattedAllowance)
       } catch (err) {
         console.error("获取授权额度失败详细错误:", err)
-        setError(`获取授权额度失败: ${err.message || "未知错误"}`)
+        setError(`获取授权额度失败: ${(err as Error).message || "未知错误"}`)
       } finally {
         setIsLoading(false)
       }
     },
-    [tokenAddress, walletState.provider, walletState.address, tokenInfo],
+    [tokenAddress, walletState.provider, walletState.address, tokenInfo, airdropContractAddress],
   )
 
   // 转账代币
   const transfer = async (to: string, amount: string) => {
-    if (!tokenAddress || !walletState.provider || !walletState.signer || !tokenInfo) {
+    if (!tokenAddress || !walletState.provider || !tokenInfo) {
       setError("请先连接钱包")
       return
     }
@@ -165,6 +168,7 @@ export function useTokenContract(tokenAddress: string) {
     setError(null)
 
     try {
+      console.log("Transferring tokens:", { to, amount })
       const provider = new ethers.BrowserProvider(walletState.provider)
       const signer = await provider.getSigner()
       const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, signer)
@@ -174,9 +178,11 @@ export function useTokenContract(tokenAddress: string) {
 
       // 发送交易
       const tx = await tokenContract.transfer(to, amountInWei)
+      console.log("Transfer transaction sent:", tx.hash)
 
       // 等待交易确认
       const receipt = await tx.wait()
+      console.log("Transfer transaction confirmed:", receipt)
 
       // 更新余额
       await fetchBalance()
@@ -207,7 +213,11 @@ export function useTokenContract(tokenAddress: string) {
       const signer = await provider.getSigner()
 
       // 使用提供的spender或默认使用空投合约地址
-      const spenderAddress = spender || "0x5FbDB2315678afecb367f032d93F642f64180aa3" // 空投合约地址
+      const spenderAddress = spender || airdropContractAddress
+
+      if (!spenderAddress) {
+        throw new Error("没有提供spender地址且空投合约地址未加载")
+      }
 
       // 创建带有签名者的合约实例
       const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, signer)
@@ -239,7 +249,7 @@ export function useTokenContract(tokenAddress: string) {
       return receipt
     } catch (err) {
       console.error("授权失败详细错误:", err)
-      setError(`授权失败: ${err.message || "未知错误"}`)
+      setError(`授权失败: ${(err as Error).message || "未知错误"}`)
       throw err
     } finally {
       setIsLoading(false)
@@ -275,10 +285,6 @@ export function useTokenContract(tokenAddress: string) {
       console.log("合约所有者:", currentOwner)
       console.log("当前签名者:", currentSigner)
 
-      if (currentOwner.toLowerCase() !== currentSigner.toLowerCase()) {
-        throw new Error("只有合约所有者才能铸造代币")
-      }
-
       // 将金额转换为正确的单位
       const amountInWei = ethers.parseUnits(amount, tokenInfo.decimals)
       console.log("铸造金额(Wei):", amountInWei.toString())
@@ -298,7 +304,7 @@ export function useTokenContract(tokenAddress: string) {
       return receipt
     } catch (err) {
       console.error("铸造失败详细错误:", err)
-      setError(`铸造失败: ${err.message || "未知错误"}`)
+      setError(`铸造失败: ${(err as Error).message || "未知错误"}`)
       throw err
     } finally {
       setIsLoading(false)
@@ -307,7 +313,7 @@ export function useTokenContract(tokenAddress: string) {
 
   // 销毁代币
   const burn = async (amount: string) => {
-    if (!tokenAddress || !walletState.provider || !walletState.signer || !tokenInfo) {
+    if (!tokenAddress || !walletState.provider || !tokenInfo) {
       setError("请先连接钱包")
       return
     }
@@ -317,15 +323,14 @@ export function useTokenContract(tokenAddress: string) {
 
     try {
       const provider = new ethers.BrowserProvider(walletState.provider)
-      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider)
       const signer = await provider.getSigner()
-      const tokenWithSigner = tokenContract.connect(signer)
+      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, signer)
 
       // 将金额转换为正确的单位
       const amountInWei = ethers.parseUnits(amount, tokenInfo.decimals)
 
       // 发送交易
-      const tx = await tokenWithSigner.burn(amountInWei)
+      const tx = await tokenContract.burn(amountInWei)
 
       // 等待交易确认
       const receipt = await tx.wait()
@@ -346,7 +351,7 @@ export function useTokenContract(tokenAddress: string) {
 
   // 暂停代币
   const pause = async () => {
-    if (!tokenAddress || !walletState.provider || !walletState.signer) {
+    if (!tokenAddress || !walletState.provider) {
       setError("请先连接钱包")
       return
     }
@@ -356,11 +361,11 @@ export function useTokenContract(tokenAddress: string) {
 
     try {
       const provider = new ethers.BrowserProvider(walletState.provider)
-      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider)
-      const tokenWithSigner = tokenContract.connect(walletState.signer)
+      const signer = await provider.getSigner()
+      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, signer)
 
       // 发送交易
-      const tx = await tokenWithSigner.pause()
+      const tx = await tokenContract.pause()
 
       // 等待交易确认
       const receipt = await tx.wait()
@@ -380,7 +385,7 @@ export function useTokenContract(tokenAddress: string) {
 
   // 恢复代币
   const unpause = async () => {
-    if (!tokenAddress || !walletState.provider || !walletState.signer) {
+    if (!tokenAddress || !walletState.provider) {
       setError("请先连接钱包")
       return
     }
@@ -390,11 +395,11 @@ export function useTokenContract(tokenAddress: string) {
 
     try {
       const provider = new ethers.BrowserProvider(walletState.provider)
-      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider)
-      const tokenWithSigner = tokenContract.connect(walletState.signer)
+      const signer = await provider.getSigner()
+      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, signer)
 
       // 发送交易
-      const tx = await tokenWithSigner.unpause()
+      const tx = await tokenContract.unpause()
 
       // 等待交易确认
       const receipt = await tx.wait()
@@ -436,6 +441,7 @@ export function useTokenContract(tokenAddress: string) {
     isPaused,
     isLoading,
     error,
+    airdropContractAddress,
     fetchTokenInfo,
     fetchBalance,
     fetchAllowance,

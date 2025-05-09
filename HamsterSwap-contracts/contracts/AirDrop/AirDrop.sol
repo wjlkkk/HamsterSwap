@@ -101,7 +101,7 @@ contract AirDrop is Ownable{
             isCancelled:false,
             merkleRoot : _merkleRoot
         }));
-        IERC20(_tokenAddress).transferFrom(msg.sender,address(this),_totalAmount);
+        //IERC20(_tokenAddress).transferFrom(msg.sender,address(this),_totalAmount);
         emit AirdropCreated(AirDropinfos.length-1,_tokenAddress,_totalAmount);
         return AirDropinfos.length -1;
     }

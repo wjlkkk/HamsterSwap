@@ -1,4 +1,5 @@
 import { ethers } from "ethers"
+import { getContractAddress } from "@/utils/contract-addresses"
 
 // Farm contract ABI - updated to match your contract
 export const FARM_ABI = [
@@ -37,22 +38,26 @@ export const FARM_ABI = [
   "event RewardPerBlockUpdated(uint256 oldValue, uint256 newValue)",
 ]
 
-// Update this with your deployed contract address
-export const FARM_CONTRACT_ADDRESS = "0xB0D4afd8879eD9F52b28595d31B441D079B2Ca07"
+// Get Farm contract address
+export const getFarmContractAddress = async () => {
+  return await getContractAddress("Farm")
+}
 
 // Connect to Farm contract (read-only)
-export const connectToFarmContract = (provider: ethers.Provider) => {
-  return new ethers.Contract(FARM_CONTRACT_ADDRESS, FARM_ABI, provider)
+export const connectToFarmContract = async (provider: ethers.Provider) => {
+  const contractAddress = await getFarmContractAddress()
+  return new ethers.Contract(contractAddress, FARM_ABI, provider)
 }
 
 // Connect to Farm contract with signer (for transactions)
-export const connectToFarmContractWithSigner = (signer: ethers.Signer) => {
-  return new ethers.Contract(FARM_CONTRACT_ADDRESS, FARM_ABI, signer)
+export const connectToFarmContractWithSigner = async (signer: ethers.Signer) => {
+  const contractAddress = await getFarmContractAddress()
+  return new ethers.Contract(contractAddress, FARM_ABI, signer)
 }
 
 // Get farms information
 export const getAllFarms = async (provider: ethers.Provider) => {
-  const contract = connectToFarmContract(provider)
+  const contract = await connectToFarmContract(provider)
   const poolLength = await contract.poolLength()
 
   const farms = []
@@ -73,7 +78,7 @@ export const getAllFarms = async (provider: ethers.Provider) => {
 
 // Get user information for a specific farm
 export const getUserStakeInfo = async (provider: ethers.Provider, pid: number, userAddress: string) => {
-  const contract = connectToFarmContract(provider)
+  const contract = await connectToFarmContract(provider)
   const userInfo = await contract.getUserInfo(pid, userAddress)
 
   return {
@@ -84,7 +89,7 @@ export const getUserStakeInfo = async (provider: ethers.Provider, pid: number, u
 
 // Deposit (stake) LP tokens
 export const stakeLpTokens = async (signer: ethers.Signer, pid: number, amount: string) => {
-  const contract = connectToFarmContractWithSigner(signer)
+  const contract = await connectToFarmContractWithSigner(signer)
   const amountWei = ethers.parseEther(amount)
 
   const tx = await contract.deposit(pid, amountWei)
@@ -93,7 +98,7 @@ export const stakeLpTokens = async (signer: ethers.Signer, pid: number, amount: 
 
 // Withdraw (unstake) LP tokens
 export const unstakeLpTokens = async (signer: ethers.Signer, pid: number, amount: string) => {
-  const contract = connectToFarmContractWithSigner(signer)
+  const contract = await connectToFarmContractWithSigner(signer)
   const amountWei = ethers.parseEther(amount)
 
   const tx = await contract.withdraw(pid, amountWei)
@@ -102,7 +107,7 @@ export const unstakeLpTokens = async (signer: ethers.Signer, pid: number, amount
 
 // Harvest rewards
 export const harvestRewards = async (signer: ethers.Signer, pid: number) => {
-  const contract = connectToFarmContractWithSigner(signer)
+  const contract = await connectToFarmContractWithSigner(signer)
 
   const tx = await contract.harvest(pid)
   return await tx.wait()
@@ -110,7 +115,7 @@ export const harvestRewards = async (signer: ethers.Signer, pid: number) => {
 
 // Emergency withdraw
 export const emergencyWithdraw = async (signer: ethers.Signer, pid: number) => {
-  const contract = connectToFarmContractWithSigner(signer)
+  const contract = await connectToFarmContractWithSigner(signer)
 
   const tx = await contract.emergencyWithdraw(pid)
   return await tx.wait()
@@ -124,7 +129,7 @@ export const addFarmPool = async (
   stakingToken: string,
   withUpdate = true,
 ) => {
-  const contract = connectToFarmContractWithSigner(signer)
+  const contract = await connectToFarmContractWithSigner(signer)
 
   const tx = await contract.add(allocPoint, stakingToken, withUpdate)
   return await tx.wait()
@@ -137,7 +142,7 @@ export const updateFarmAllocation = async (
   allocPoint: number,
   withUpdate = true,
 ) => {
-  const contract = connectToFarmContractWithSigner(signer)
+  const contract = await connectToFarmContractWithSigner(signer)
 
   const tx = await contract.set(pid, allocPoint, withUpdate)
   return await tx.wait()
@@ -145,7 +150,7 @@ export const updateFarmAllocation = async (
 
 // Update reward per block
 export const updateRewardPerBlock = async (signer: ethers.Signer, rewardPerBlock: string) => {
-  const contract = connectToFarmContractWithSigner(signer)
+  const contract = await connectToFarmContractWithSigner(signer)
   const rewardAmount = ethers.parseEther(rewardPerBlock)
 
   const tx = await contract.setRewardPerBlock(rewardAmount)
@@ -154,7 +159,7 @@ export const updateRewardPerBlock = async (signer: ethers.Signer, rewardPerBlock
 
 // Fund the contract with more reward tokens
 export const fundContract = async (signer: ethers.Signer, amount: string) => {
-  const contract = connectToFarmContractWithSigner(signer)
+  const contract = await connectToFarmContractWithSigner(signer)
   const fundAmount = ethers.parseEther(amount)
 
   const tx = await contract.fund(fundAmount)

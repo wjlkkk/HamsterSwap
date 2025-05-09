@@ -16,6 +16,7 @@ const outfit = Outfit({
 export const metadata = {
   title: "HamsterSwap",
   description: "The cutest swap in the galaxy",
+    generator: 'v0.dev'
 }
 
 export default function RootLayout({

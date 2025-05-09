@@ -7,11 +7,11 @@ import { useAdmin } from "@/contexts/admin-context"
 import { useAirdropContract } from "@/hooks/use-airdrop-contract"
 import { useTokenContract } from "@/hooks/use-token-contract"
 import { useFarmContract } from "@/hooks/use-farm-contract"
-import { deployedTokens, getTokenInfo, ERC20_ABI } from "@/contracts/token-contract"
+import { getTokenInfo, ERC20_ABI, getDeployedTokens } from "@/contracts/token-contract"
 import { ethers } from "ethers"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
@@ -39,6 +39,17 @@ import {
   ArrowUpRight,
   Check,
   Flame,
+  Home,
+  PieChart,
+  Activity,
+  DollarSign,
+  TrendingUp,
+  Clock,
+  Shield,
+  ChevronRight,
+  BarChart,
+  Zap,
+  Award,
 } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -56,6 +67,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
+import { Progress } from "@/components/ui/progress"
 
 export default function AdminPage() {
   return (
@@ -73,7 +85,7 @@ export default function AdminPage() {
 function AdminDashboard() {
   const { walletState } = useWallet()
   const { isAdmin } = useAdmin()
-  const [activeTab, setActiveTab] = useState("overview")
+  const [activeTab, setActiveTab] = useState("dashboard")
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(false)
 
@@ -109,8 +121,9 @@ function AdminDashboard() {
   const [mintToAddress, setMintToAddress] = useState("")
   const [burnAmount, setBurnAmount] = useState("")
   const [customTokenAddress, setCustomTokenAddress] = useState("")
-  const [tokenList, setTokenList] = useState<any[]>(deployedTokens)
-  const [selectedTokenForManagement, setSelectedTokenForManagement] = useState(deployedTokens[0]?.address || "")
+  const [tokenList, setTokenList] = useState<any[]>([])
+  const [selectedTokenForManagement, setSelectedTokenForManagement] = useState("")
+  const [isTokensLoading, setIsTokensLoading] = useState(true)
 
   // 查询功能状态
   const [queryBalanceAddress, setQueryBalanceAddress] = useState("")
@@ -162,6 +175,57 @@ function AdminDashboard() {
     updateRewardPerBlock,
     fundRewards,
   } = useFarmContract()
+
+  // 仪表盘统计数据
+  const [dashboardStats, setDashboardStats] = useState({
+    totalTokens: 0,
+    totalAirdrops: 0,
+    activeAirdrops: 0,
+    totalFarms: 0,
+    totalUsers: 0,
+    totalTransactions: 0,
+  })
+
+  // 加载仪表盘数据
+  useEffect(() => {
+    const loadDashboardData = async () => {
+      setDashboardStats({
+        totalTokens: tokenList.length,
+        totalAirdrops: airdrops.length,
+        activeAirdrops: airdrops.filter((a) => a.active).length,
+        totalFarms: farms.length,
+        totalUsers: new Set(airdrops.flatMap((a) => a.eligibleUsers)).size,
+        totalTransactions: Math.floor(Math.random() * 1000) + 100, // 模拟数据
+      })
+    }
+
+    loadDashboardData()
+  }, [tokenList, airdrops, farms])
+
+  // Load deployed tokens
+  useEffect(() => {
+    const loadTokens = async () => {
+      setIsTokensLoading(true)
+      try {
+        const tokens = await getDeployedTokens()
+        setTokenList(tokens)
+        if (tokens.length > 0) {
+          setSelectedTokenForManagement(tokens[0].address)
+        }
+      } catch (error) {
+        console.error("Failed to load deployed tokens:", error)
+        toast({
+          title: "加载代币失败",
+          description: "无法加载已部署的代币列表",
+          variant: "destructive",
+        })
+      } finally {
+        setIsTokensLoading(false)
+      }
+    }
+
+    loadTokens()
+  }, [])
 
   // 当空投标签被激活时，刷新空投列表
   useEffect(() => {
@@ -439,7 +503,14 @@ function AdminDashboard() {
     }
 
     try {
+      console.log("开始铸造代币:", {
+        token: selectedTokenForManagement,
+        to: mintToAddress,
+        amount: mintAmount,
+      })
+
       await mint(mintToAddress, mintAmount)
+
       toast({
         title: "铸造成功",
         description: `已成功铸造 ${mintAmount} ${tokenInfo?.symbol} 到 ${mintToAddress.substring(0, 6)}...`,
@@ -548,6 +619,7 @@ function AdminDashboard() {
       }
 
       setTokenList([...tokenList, newToken])
+      setSelectedTokenForManagement(customTokenAddress)
       setCustomTokenAddress("")
 
       toast({
@@ -727,7 +799,7 @@ function AdminDashboard() {
       if (success) {
         toast({
           title: "奖励更新成功",
-          description: `���区块奖励已更新为 ${rewardPerBlock} CAKE`,
+          description: `每区块奖励已更新为 ${rewardPerBlock} CAKE`,
         })
         setRewardPerBlock("")
         setIsUpdateRewardDialogOpen(false)
@@ -836,7 +908,14 @@ function AdminDashboard() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid grid-cols-6 w-full bg-[#F9F5EA] p-1 rounded-xl">
+        <TabsList className="grid grid-cols-7 w-full bg-[#F9F5EA] p-1 rounded-xl">
+          <TabsTrigger
+            value="dashboard"
+            className="flex items-center data-[state=active]:bg-white data-[state=active]:text-[#523805] data-[state=active]:shadow-sm text-[#523805]/70"
+          >
+            <Home className="mr-2 h-4 w-4" />
+            <span>仪表盘</span>
+          </TabsTrigger>
           <TabsTrigger
             value="overview"
             className="flex items-center data-[state=active]:bg-white data-[state=active]:text-[#523805] data-[state=active]:shadow-sm text-[#523805]/70"
@@ -880,6 +959,327 @@ function AdminDashboard() {
             <span>设置</span>
           </TabsTrigger>
         </TabsList>
+
+        {/* 仪表盘标签 */}
+        <TabsContent value="dashboard">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <Card className="border-[#EACC91] bg-gradient-to-br from-[#F9F5EA] to-white">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-[#523805] flex items-center">
+                  <Coins className="mr-2 h-4 w-4 text-[#987A3F]" />
+                  代币管理
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-[#523805]">{dashboardStats.totalTokens}</div>
+                <p className="text-xs text-[#987A3F] mt-1">已添加的代币数量</p>
+                <Progress value={dashboardStats.totalTokens * 10} className="h-1 mt-3" />
+              </CardContent>
+              <CardFooter className="pt-0">
+                <Button
+                  variant="link"
+                  className="p-0 h-auto text-[#987A3F] hover:text-[#523805]"
+                  onClick={() => setActiveTab("tokens")}
+                >
+                  管理代币 <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </CardFooter>
+            </Card>
+
+            <Card className="border-[#EACC91] bg-gradient-to-br from-[#F9F5EA] to-white">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-[#523805] flex items-center">
+                  <Gift className="mr-2 h-4 w-4 text-[#987A3F]" />
+                  空投活动
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-[#523805]">
+                  {dashboardStats.activeAirdrops}/{dashboardStats.totalAirdrops}
+                </div>
+                <p className="text-xs text-[#987A3F] mt-1">活跃/总空投数量</p>
+                <Progress
+                  value={
+                    dashboardStats.totalAirdrops > 0
+                      ? (dashboardStats.activeAirdrops / dashboardStats.totalAirdrops) * 100
+                      : 0
+                  }
+                  className="h-1 mt-3"
+                />
+              </CardContent>
+              <CardFooter className="pt-0">
+                <Button
+                  variant="link"
+                  className="p-0 h-auto text-[#987A3F] hover:text-[#523805]"
+                  onClick={() => setActiveTab("airdrops")}
+                >
+                  管理空投 <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </CardFooter>
+            </Card>
+
+            <Card className="border-[#EACC91] bg-gradient-to-br from-[#F9F5EA] to-white">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-[#523805] flex items-center">
+                  <Tractor className="mr-2 h-4 w-4 text-[#987A3F]" />
+                  农场池
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-[#523805]">{dashboardStats.totalFarms}</div>
+                <p className="text-xs text-[#987A3F] mt-1">活跃的流动性挖矿农场</p>
+                <Progress value={dashboardStats.totalFarms * 20} className="h-1 mt-3" />
+              </CardContent>
+              <CardFooter className="pt-0">
+                <Button
+                  variant="link"
+                  className="p-0 h-auto text-[#987A3F] hover:text-[#523805]"
+                  onClick={() => setActiveTab("farms")}
+                >
+                  管理农场 <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </CardFooter>
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            <div className="lg:col-span-2">
+              <Card className="border-[#EACC91]">
+                <CardHeader>
+                  <CardTitle className="flex items-center text-[#523805]">
+                    <Activity className="mr-2 h-5 w-5 text-[#987A3F]" />
+                    平台活动概览
+                  </CardTitle>
+                  <CardDescription>最近的平台活动和统计数据</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-8">
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm font-medium text-[#523805]">用户参与度</h4>
+                        <span className="text-xs text-[#987A3F]">过去30天</span>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-[#987A3F]">空投参与用户</span>
+                          <span className="text-xs font-medium text-[#523805]">{dashboardStats.totalUsers}</span>
+                        </div>
+                        <Progress value={75} className="h-1" />
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-[#987A3F]">农场质押用户</span>
+                          <span className="text-xs font-medium text-[#523805]">
+                            {Math.floor(dashboardStats.totalUsers * 0.6)}
+                          </span>
+                        </div>
+                        <Progress value={45} className="h-1" />
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-[#987A3F]">IDO参与用户</span>
+                          <span className="text-xs font-medium text-[#523805]">
+                            {Math.floor(dashboardStats.totalUsers * 0.3)}
+                          </span>
+                        </div>
+                        <Progress value={30} className="h-1" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm font-medium text-[#523805]">交易活动</h4>
+                        <span className="text-xs text-[#987A3F]">过去7天</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="bg-[#F9F5EA] rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs text-[#987A3F]">总交易量</span>
+                            <TrendingUp className="h-3 w-3 text-green-500" />
+                          </div>
+                          <div className="text-lg font-bold text-[#523805]">{dashboardStats.totalTransactions}</div>
+                        </div>
+                        <div className="bg-[#F9F5EA] rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs text-[#987A3F]">平均交易额</span>
+                            <TrendingUp className="h-3 w-3 text-green-500" />
+                          </div>
+                          <div className="text-lg font-bold text-[#523805]">$1,245</div>
+                        </div>
+                        <div className="bg-[#F9F5EA] rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs text-[#987A3F]">活跃钱包</span>
+                            <TrendingUp className="h-3 w-3 text-green-500" />
+                          </div>
+                          <div className="text-lg font-bold text-[#523805]">{dashboardStats.totalUsers}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div>
+              <Card className="border-[#EACC91] mb-6">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center text-[#523805]">
+                    <Clock className="mr-2 h-5 w-5 text-[#987A3F]" />
+                    即将到期的活动
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {airdrops.slice(0, 3).map((airdrop, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between border-b border-[#EACC91]/30 pb-3 last:border-0 last:pb-0"
+                      >
+                        <div>
+                          <h4 className="text-sm font-medium text-[#523805]">
+                            {airdrop.tokenSymbol} 空投 #{airdrop.id}
+                          </h4>
+                          <p className="text-xs text-[#987A3F]">
+                            结束于: {new Date(airdrop.endTime * 1000).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <Badge
+                          variant={airdrop.active ? "default" : "outline"}
+                          className={airdrop.active ? "bg-[#987A3F] text-white" : "border-[#987A3F] text-[#987A3F]"}
+                        >
+                          {airdrop.active ? "活跃" : "未激活"}
+                        </Badge>
+                      </div>
+                    ))}
+
+                    {airdrops.length === 0 && (
+                      <div className="text-center py-4">
+                        <p className="text-[#987A3F]">暂无空投活动</p>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-[#EACC91]">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center text-[#523805]">
+                    <Shield className="mr-2 h-5 w-5 text-[#987A3F]" />
+                    安全状态
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <div className="w-2 h-2 rounded-full bg-green-500 mr-2"></div>
+                        <span className="text-sm text-[#523805]">合约安全</span>
+                      </div>
+                      <Badge variant="outline" className="border-green-500 text-green-500">
+                        正常
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <div className="w-2 h-2 rounded-full bg-green-500 mr-2"></div>
+                        <span className="text-sm text-[#523805]">管理员权限</span>
+                      </div>
+                      <Badge variant="outline" className="border-green-500 text-green-500">
+                        安全
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <div className="w-2 h-2 rounded-full bg-green-500 mr-2"></div>
+                        <span className="text-sm text-[#523805]">资金安全</span>
+                      </div>
+                      <Badge variant="outline" className="border-green-500 text-green-500">
+                        正常
+                      </Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card className="border-[#EACC91]">
+              <CardHeader>
+                <CardTitle className="flex items-center text-[#523805]">
+                  <Zap className="mr-2 h-5 w-5 text-[#987A3F]" />
+                  快速操作
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-4">
+                  <Button
+                    className="bg-[#987A3F] hover:bg-[#523805] text-white h-auto py-4 flex flex-col items-center justify-center"
+                    onClick={() => setActiveTab("tokens")}
+                  >
+                    <Coins className="h-6 w-6 mb-2" />
+                    <span>添加代币</span>
+                  </Button>
+                  <Button
+                    className="bg-[#987A3F] hover:bg-[#523805] text-white h-auto py-4 flex flex-col items-center justify-center"
+                    onClick={() => setActiveTab("airdrops")}
+                  >
+                    <Gift className="h-6 w-6 mb-2" />
+                    <span>创建空投</span>
+                  </Button>
+                  <Button
+                    className="bg-[#987A3F] hover:bg-[#523805] text-white h-auto py-4 flex flex-col items-center justify-center"
+                    onClick={() => setActiveTab("farms")}
+                  >
+                    <Tractor className="h-6 w-6 mb-2" />
+                    <span>添加农场</span>
+                  </Button>
+                  <Button
+                    className="bg-[#987A3F] hover:bg-[#523805] text-white h-auto py-4 flex flex-col items-center justify-center"
+                    onClick={() => setActiveTab("ido")}
+                  >
+                    <Rocket className="h-6 w-6 mb-2" />
+                    <span>创建IDO</span>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-[#EACC91]">
+              <CardHeader>
+                <CardTitle className="flex items-center text-[#523805]">
+                  <Award className="mr-2 h-5 w-5 text-[#987A3F]" />
+                  平台统计
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <BarChart className="h-5 w-5 text-[#987A3F] mr-2" />
+                      <span className="text-sm text-[#523805]">总锁仓价值 (TVL)</span>
+                    </div>
+                    <span className="font-medium text-[#523805]">$1,234,567</span>
+                  </div>
+                  <Separator className="bg-[#EACC91]/50" />
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <PieChart className="h-5 w-5 text-[#987A3F] mr-2" />
+                      <span className="text-sm text-[#523805]">总交易量</span>
+                    </div>
+                    <span className="font-medium text-[#523805]">$9,876,543</span>
+                  </div>
+                  <Separator className="bg-[#EACC91]/50" />
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <DollarSign className="h-5 w-5 text-[#987A3F] mr-2" />
+                      <span className="text-sm text-[#523805]">平台手续费收入</span>
+                    </div>
+                    <span className="font-medium text-[#523805]">$123,456</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
 
         {/* 概览标签 */}
         <TabsContent value="overview">
@@ -984,36 +1384,59 @@ function AdminDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {tokenList.slice(0, 5).map((token) => (
-                    <div
-                      key={token.address}
-                      className="flex items-center justify-between border-b border-[#EACC91]/30 pb-4"
-                    >
-                      <div className="flex items-center">
-                        <div className="w-8 h-8 rounded-full bg-[#EACC91]/50 flex items-center justify-center mr-3">
-                          <span className="text-xs font-bold text-[#523805]">{token.symbol.substring(0, 2)}</span>
-                        </div>
-                        <div>
-                          <h3 className="font-medium text-[#523805]">{token.name}</h3>
-                          <p className="text-sm text-[#987A3F]">{token.symbol}</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-medium text-[#523805]">
-                          {selectedTokenForManagement === token.address ? balance : "?"}
-                        </p>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-xs text-[#987A3F] hover:text-[#523805] hover:bg-[#EACC91]/20"
-                          onClick={() => setSelectedTokenForManagement(token.address)}
+                  {isTokensLoading
+                    ? // Loading skeleton for token balances
+                      Array(3)
+                        .fill(0)
+                        .map((_, index) => (
+                          <div
+                            key={`balance-skeleton-${index}`}
+                            className="flex items-center justify-between border-b border-[#EACC91]/30 pb-4"
+                          >
+                            <div className="flex items-center">
+                              <div className="w-8 h-8 rounded-full bg-[#EACC91]/50 animate-pulse mr-3"></div>
+                              <div>
+                                <div className="w-24 h-5 bg-[#EACC91]/50 animate-pulse rounded-md mb-1"></div>
+                                <div className="w-16 h-4 bg-[#EACC91]/50 animate-pulse rounded-md"></div>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="w-16 h-5 bg-[#EACC91]/50 animate-pulse rounded-md mb-1 ml-auto"></div>
+                              <div className="w-12 h-4 bg-[#EACC91]/50 animate-pulse rounded-md ml-auto"></div>
+                            </div>
+                          </div>
+                        ))
+                    : tokenList.slice(0, 5).map((token) => (
+                        // Existing token balance display
+                        <div
+                          key={token.address}
+                          className="flex items-center justify-between border-b border-[#EACC91]/30 pb-4"
                         >
-                          <RefreshCw className="h-3 w-3 mr-1" />
-                          刷新
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                          <div className="flex items-center">
+                            <div className="w-8 h-8 rounded-full bg-[#EACC91]/50 flex items-center justify-center mr-3">
+                              <span className="text-xs font-bold text-[#523805]">{token.symbol.substring(0, 2)}</span>
+                            </div>
+                            <div>
+                              <h3 className="font-medium text-[#523805]">{token.name}</h3>
+                              <p className="text-sm text-[#987A3F]">{token.symbol}</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-medium text-[#523805]">
+                              {selectedTokenForManagement === token.address ? balance : "?"}
+                            </p>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-xs text-[#987A3F] hover:text-[#523805] hover:bg-[#EACC91]/20"
+                              onClick={() => setSelectedTokenForManagement(token.address)}
+                            >
+                              <RefreshCw className="h-3 w-3 mr-1" />
+                              刷新
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
                 </div>
               </CardContent>
             </Card>
@@ -1040,27 +1463,44 @@ function AdminDashboard() {
                     </div>
 
                     <div className="mt-4 space-y-2 max-h-[400px] overflow-y-auto pr-2">
-                      {tokenList.map((token) => (
-                        <Button
-                          key={token.address}
-                          variant="outline"
-                          className={`w-full justify-start border-[#EACC91] hover:bg-[#F9F5EA] ${
-                            selectedTokenForManagement === token.address ? "bg-[#EACC91]/30 border-[#987A3F]" : ""
-                          }`}
-                          onClick={() => setSelectedTokenForManagement(token.address)}
-                        >
-                          <div className="w-6 h-6 rounded-full bg-[#EACC91]/50 flex items-center justify-center mr-2">
-                            <span className="text-xs font-bold text-[#523805]">{token.symbol.substring(0, 2)}</span>
-                          </div>
-                          <div className="text-left flex-grow">
-                            <div className="font-medium text-sm text-[#523805]">{token.symbol}</div>
-                            <div className="text-xs text-[#987A3F]">{token.name}</div>
-                          </div>
-                          {token.owner === walletState.address && (
-                            <Badge className="ml-2 bg-[#987A3F] text-white text-xs px-1.5 py-0">所有者</Badge>
-                          )}
-                        </Button>
-                      ))}
+                      {isTokensLoading ? (
+                        // Loading skeleton UI
+                        Array(5)
+                          .fill(0)
+                          .map((_, index) => (
+                            <div
+                              key={`skeleton-${index}`}
+                              className="w-full h-12 bg-[#F9F5EA] animate-pulse rounded-md mb-2"
+                            />
+                          ))
+                      ) : tokenList.length === 0 ? (
+                        <div className="text-center py-4">
+                          <p className="text-[#987A3F]">暂无代币</p>
+                          <p className="text-xs text-[#987A3F] mt-1">请添加自定义代币</p>
+                        </div>
+                      ) : (
+                        tokenList.map((token) => (
+                          <Button
+                            key={token.address}
+                            variant="outline"
+                            className={`w-full justify-start border-[#EACC91] hover:bg-[#F9F5EA] ${
+                              selectedTokenForManagement === token.address ? "bg-[#EACC91]/30 border-[#987A3F]" : ""
+                            }`}
+                            onClick={() => setSelectedTokenForManagement(token.address)}
+                          >
+                            <div className="w-6 h-6 rounded-full bg-[#EACC91]/50 flex items-center justify-center mr-2">
+                              <span className="text-xs font-bold text-[#523805]">{token.symbol.substring(0, 2)}</span>
+                            </div>
+                            <div className="text-left flex-grow">
+                              <div className="font-medium text-sm text-[#523805]">{token.symbol}</div>
+                              <div className="text-xs text-[#987A3F]">{token.name}</div>
+                            </div>
+                            {token.owner === walletState.address && (
+                              <Badge className="ml-2 bg-[#987A3F] text-white text-xs px-1.5 py-0">所有者</Badge>
+                            )}
+                          </Button>
+                        ))
+                      )}
                     </div>
 
                     <Separator className="my-4 bg-[#EACC91]" />
@@ -1092,7 +1532,27 @@ function AdminDashboard() {
             </div>
 
             <div className="lg:col-span-2">
-              {tokenInfo ? (
+              {isTokensLoading ? (
+                <Card className="border-[#EACC91]">
+                  <CardHeader>
+                    <div className="w-48 h-7 bg-[#F9F5EA] animate-pulse rounded-md mb-2"></div>
+                    <div className="w-64 h-5 bg-[#F9F5EA] animate-pulse rounded-md"></div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-4 mb-6">
+                      <div className="bg-[#F9F5EA] rounded-lg p-4">
+                        <div className="w-20 h-5 bg-[#EACC91]/50 animate-pulse rounded-md mb-2"></div>
+                        <div className="w-32 h-8 bg-[#EACC91]/50 animate-pulse rounded-md"></div>
+                      </div>
+                      <div className="bg-[#F9F5EA] rounded-lg p-4">
+                        <div className="w-20 h-5 bg-[#EACC91]/50 animate-pulse rounded-md mb-2"></div>
+                        <div className="w-32 h-8 bg-[#EACC91]/50 animate-pulse rounded-md"></div>
+                      </div>
+                    </div>
+                    <div className="w-full h-40 bg-[#F9F5EA] animate-pulse rounded-lg"></div>
+                  </CardContent>
+                </Card>
+              ) : tokenInfo ? (
                 <div className="space-y-6">
                   <Card className="border-[#EACC91]">
                     <CardHeader className="bg-gradient-to-r from-[#F9F5EA] to-transparent">
@@ -1277,91 +1737,80 @@ function AdminDashboard() {
 
                         {/* 铸造表单 */}
                         <TabsContent value="mint" className="mt-4 space-y-4">
-                          {owner === walletState.address ? (
-                            <>
-                              <div className="space-y-2">
-                                <Label htmlFor="mintToAddress" className="text-[#523805]">
-                                  接收地址
-                                </Label>
-                                <Input
-                                  id="mintToAddress"
-                                  placeholder="输入接收铸造代币的地址"
-                                  value={mintToAddress}
-                                  onChange={(e) => setMintToAddress(e.target.value)}
-                                  className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                                />
-                              </div>
-                              <div className="space-y-2">
-                                <Label htmlFor="mintAmount" className="text-[#523805]">
-                                  铸造数量
-                                </Label>
-                                <Input
-                                  id="mintAmount"
-                                  type="number"
-                                  placeholder="输入铸造数量"
-                                  value={mintAmount}
-                                  onChange={(e) => setMintAmount(e.target.value)}
-                                  className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                                />
-                              </div>
-                              <Button
-                                onClick={handleMintToken}
-                                disabled={isTokenLoading}
-                                className="w-full bg-[#987A3F] hover:bg-[#523805] text-white"
-                              >
-                                铸造
-                              </Button>
-                            </>
-                          ) : (
-                            <Alert>
+                          <div className="space-y-2">
+                            <Label htmlFor="mintToAddress" className="text-[#523805]">
+                              接收地址
+                            </Label>
+                            <Input
+                              id="mintToAddress"
+                              placeholder="输入接收铸造代币的地址"
+                              value={mintToAddress}
+                              onChange={(e) => setMintToAddress(e.target.value)}
+                              className="border-[#EACC91] focus-visible:ring-[#987A3F]"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="mintAmount" className="text-[#523805]">
+                              铸造数量
+                            </Label>
+                            <Input
+                              id="mintAmount"
+                              type="number"
+                              placeholder="输入铸造数量"
+                              value={mintAmount}
+                              onChange={(e) => setMintAmount(e.target.value)}
+                              className="border-[#EACC91] focus-visible:ring-[#987A3F]"
+                            />
+                          </div>
+                          <Button
+                            onClick={handleMintToken}
+                            disabled={isTokenLoading}
+                            className="w-full bg-[#987A3F] hover:bg-[#523805] text-white"
+                          >
+                            铸造
+                          </Button>
+                          {owner !== walletState.address && (
+                            <Alert variant="destructive">
                               <AlertCircle className="h-4 w-4" />
-                              <AlertTitle>权限不足</AlertTitle>
-                              <AlertDescription>只有代币所有者才能执行铸造操作。</AlertDescription>
+                              <AlertTitle>权限提示</AlertTitle>
+                              <AlertDescription>
+                                您不是代币所有者，铸造操作可能会失败。只有代币所有者才能执行铸造操作。
+                              </AlertDescription>
                             </Alert>
                           )}
                         </TabsContent>
 
                         {/* 销毁表单 */}
                         <TabsContent value="burn" className="mt-4 space-y-4">
-                          {owner === walletState.address ? (
-                            <>
-                              <div className="space-y-2">
-                                <Label htmlFor="burnAmount" className="text-[#523805]">
-                                  销毁数量
-                                </Label>
-                                <Input
-                                  id="burnAmount"
-                                  type="number"
-                                  placeholder="输入销毁数量"
-                                  value={burnAmount}
-                                  onChange={(e) => setBurnAmount(e.target.value)}
-                                  className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                                />
-                              </div>
-                              <Button
-                                onClick={handleBurnToken}
-                                disabled={isTokenLoading}
-                                className="w-full bg-[#987A3F] hover:bg-[#523805] text-white"
-                              >
-                                销毁
-                              </Button>
-                              <div className="mt-2">
-                                <Alert variant="outline" className="border-[#EACC91]">
-                                  <AlertCircle className="h-4 w-4 text-[#987A3F]" />
-                                  <AlertTitle className="text-[#523805]">警告</AlertTitle>
-                                  <AlertDescription className="text-[#987A3F]">
-                                    销毁操作不可逆，请确认销毁数量后再操作。
-                                  </AlertDescription>
-                                </Alert>
-                              </div>
-                            </>
-                          ) : (
-                            <Alert>
-                              <AlertCircle className="h-4 w-4" />
-                              <AlertTitle>权限不足</AlertTitle>
-                              <AlertDescription>只有代币所有者才能执行销毁操作。</AlertDescription>
+                          <div className="space-y-2">
+                            <Label htmlFor="burnAmount" className="text-[#523805]">
+                              销毁数量
+                            </Label>
+                            <Input
+                              id="burnAmount"
+                              type="number"
+                              placeholder="输入销毁数量"
+                              value={burnAmount}
+                              onChange={(e) => setBurnAmount(e.target.value)}
+                              className="border-[#EACC91] focus-visible:ring-[#987A3F]"
+                            />
+                          </div>
+                          <Button
+                            onClick={handleBurnToken}
+                            disabled={isTokenLoading}
+                            className="w-full bg-[#987A3F] hover:bg-[#523805] text-white"
+                          >
+                            销毁
+                          </Button>
+                          <div className="mt-2">
+                            <Alert variant="outline" className="border-[#EACC91]">
+                              <AlertCircle className="h-4 w-4 text-[#987A3F]" />
+                              <AlertTitle className="text-[#523805]">警告</AlertTitle>
+                              <AlertDescription className="text-[#987A3F]">
+                                销毁操作不可逆，请确认销毁数量后再操作。
+                              </AlertDescription>
                             </Alert>
-                          )}
+                          </div>
                         </TabsContent>
                       </Tabs>
                     </CardContent>

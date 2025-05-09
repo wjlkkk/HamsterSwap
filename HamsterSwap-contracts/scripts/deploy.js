@@ -1,34 +1,102 @@
 const hre = require("hardhat");
+const { saveContractAddress } = require("./utils");
 
 const ownerAddress = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
-const _cakeAddress = "0x5fbdb2315678afecb367f032d93f642f64180aa3";
 
-
-// Function to deploy the Cake token contract
-async function deployToken() {
+async function deployToken(networkName) {
     try {
         console.log("Deploying Cake Token...");
-        const CakeToken = await hre.ethers.getContractFactory("farm");
-        const cake = await CakeToken.deploy(_cakeAddress,ownerAddress,10);
+        const CakeToken = await hre.ethers.getContractFactory("CAKE");
+        const cake = await CakeToken.deploy(ownerAddress);
         await cake.waitForDeployment();
-
         const cakeAddress = await cake.getAddress();
         console.log(`Cake Token deployed to: ${cakeAddress}`);
+        saveContractAddress(networkName, "CakeToken", cakeAddress);
 
-        // Mint total supply to the owner address
-        //const totalSupply = BigInt(1000) * BigInt(10) ** (await cake.decimals());
-        
-        //const mintTx = await cake.mint(ownerAddress, totalSupply);
+        console.log("Deploying Take Token...");
+        const TakeToken = await hre.ethers.getContractFactory("TAKE");
+        const take = await TakeToken.deploy(ownerAddress);
+        await take.waitForDeployment();
+        const takeAddress = await take.getAddress();
+        console.log(`Take Token deployed to: ${takeAddress}`);
+        saveContractAddress(networkName, "TakeToken", takeAddress);
 
-        //console.log(cake.balanceof(ownerAddress))
-        //await mintTx.wait(); // Wait for the transaction to be mined
-        //console.log(`Minted ${totalSupply} tokens to owner address: ${ownerAddress}`);
-
-        return cake;
+        return { cake, take };
     } catch (error) {
-        console.error("Error deploying Cake Token:", error);
-        throw error; // Re-throw the error to stop execution if needed
+        console.error("Error deploying tokens:", error);
+        throw error;
     }
 }
 
-deployToken()
+async function deployAirdrop(networkName) {
+    try {
+        console.log("Deploying Airdrop Contract...");
+        const Airdrop = await hre.ethers.getContractFactory("AirDrop");
+        const airdrop = await Airdrop.deploy(ownerAddress);
+        await airdrop.waitForDeployment();
+        const airdropAddress = await airdrop.getAddress();
+        console.log(`Airdrop Contract deployed to: ${airdropAddress}`);
+        saveContractAddress(networkName, "Airdrop", airdropAddress);
+        return airdrop;
+    } catch (error) {
+        console.error("Error deploying Airdrop:", error);
+        throw error;
+    }
+}
+
+async function deployFarm(cakeAddress, networkName) {
+    try {
+        console.log("Deploying Farm Contract...");
+        const Farm = await hre.ethers.getContractFactory("farm");
+        const farm = await Farm.deploy(cakeAddress, ownerAddress, 10); // 示例参数，请根据实际修改
+        await farm.waitForDeployment();
+        const farmAddress = await farm.getAddress();
+        console.log(`Farm Contract deployed to: ${farmAddress}`);
+        saveContractAddress(networkName, "Farm", farmAddress);
+        return farm;
+    } catch (error) {
+        console.error("Error deploying Farm:", error);
+        throw error;
+    }
+}
+
+async function deployIDO(cakeAddress, networkName) {
+    try {
+        console.log("Deploying IDO Contract...");
+        const IDO = await hre.ethers.getContractFactory("IDO");
+        const ido = await IDO.deploy(cakeAddress, ownerAddress);
+        await ido.waitForDeployment();
+        const idoAddress = await ido.getAddress();
+        console.log(`IDO Contract deployed to: ${idoAddress}`);
+        saveContractAddress(networkName, "IDO", idoAddress);
+        return ido;
+    } catch (error) {
+        console.error("Error deploying IDO:", error);
+        throw error;
+    }
+}
+
+async function main() {
+    try {
+        const networkID = "31337"; // Replace with your network ID
+        console.log(`Running on network: ${networkID}`);
+
+        const { cake, take } = await deployToken(networkID);
+        const airdrop = await deployAirdrop(networkID);
+        const cakeAddress = await cake.getAddress();
+        const farm = await deployFarm(cakeAddress, networkID);
+        const ido = await deployIDO(cakeAddress, networkID);
+
+        console.log("✅ All contracts deployed and addresses saved.");
+    } catch (error) {
+        console.error("❌ Deployment failed:", error);
+        process.exit(1);
+    }
+}
+
+main()
+    .then(() => process.exit(0))
+    .catch((error) => {
+        console.error(error);
+        process.exit(1);
+    });
