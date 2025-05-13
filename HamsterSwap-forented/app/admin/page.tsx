@@ -2,18 +2,19 @@
 
 import { useState, useEffect } from "react"
 import Image from "next/image"
+import { useRouter } from "next/navigation"
 import { useWallet } from "@/contexts/wallet-context"
 import { useAdmin } from "@/contexts/admin-context"
 import { useAirdropContract } from "@/hooks/use-airdrop-contract"
 import { useTokenContract } from "@/hooks/use-token-contract"
 import { useFarmContract } from "@/hooks/use-farm-contract"
-import { getTokenInfo, ERC20_ABI, getDeployedTokens } from "@/contracts/token-contract"
+import { useIdoContract } from "@/hooks/use-ido-contract"
+import { ERC20_ABI, getDeployedTokens, getTokenInfo } from "@/contracts/token-contract"
 import { ethers } from "ethers"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import {
   AlertCircle,
@@ -21,68 +22,47 @@ import {
   Gift,
   Calendar,
   Coins,
-  Plus,
   RefreshCw,
   Wallet,
   Tractor,
   Rocket,
   Settings,
-  Info,
-  Calculator,
-  Pencil,
-  Users,
-  Pause,
-  Play,
-  Search,
   ExternalLink,
-  Copy,
-  ArrowUpRight,
-  Check,
-  Flame,
   Home,
   PieChart,
-  Activity,
-  DollarSign,
-  TrendingUp,
   Clock,
-  Shield,
   ChevronRight,
-  BarChart,
-  Zap,
-  Award,
+  Users,
+  XCircle,
+  CheckCircle,
+  Edit,
+  Search,
+  Plus,
+  Info,
 } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/hooks/use-toast"
 import ClientOnly from "@/components/client-only"
 import Navbar from "@/components/navbar"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
 
 export default function AdminPage() {
+  const router = useRouter()
+
   return (
     <ClientOnly>
       <div className="min-h-screen bg-gradient-to-b from-[#F9F5EA] via-[#EACC91]/20 to-[#F9F5EA]">
         <Navbar />
         <div className="pt-24 pb-16">
-          <AdminDashboard />
+          <AdminDashboard router={router} />
         </div>
       </div>
     </ClientOnly>
   )
 }
 
-function AdminDashboard() {
+function AdminDashboard({ router }) {
   const { walletState } = useWallet()
   const { isAdmin } = useAdmin()
   const [activeTab, setActiveTab] = useState("dashboard")
@@ -101,6 +81,9 @@ function AdminDashboard() {
     refreshAirdrops,
     isInitialized: isAirdropInitialized,
   } = useAirdropContract()
+
+  // IDO合约钩子
+  const { idoProjects, isLoading: isIdoLoading, refreshData: refreshIdoData } = useIdoContract()
 
   // 创建空投表单状态
   const [selectedToken, setSelectedToken] = useState("")
@@ -176,6 +159,10 @@ function AdminDashboard() {
     fundRewards,
   } = useFarmContract()
 
+  // IDO管理状态
+  const [searchQuery, setSearchQuery] = useState("")
+  const [statusFilter, setStatusFilter] = useState("all")
+
   // 仪表盘统计数据
   const [dashboardStats, setDashboardStats] = useState({
     totalTokens: 0,
@@ -184,6 +171,8 @@ function AdminDashboard() {
     totalFarms: 0,
     totalUsers: 0,
     totalTransactions: 0,
+    totalIdoProjects: 0,
+    activeIdoProjects: 0,
   })
 
   // 加载仪表盘数据
@@ -196,11 +185,13 @@ function AdminDashboard() {
         totalFarms: farms.length,
         totalUsers: new Set(airdrops.flatMap((a) => a.eligibleUsers)).size,
         totalTransactions: Math.floor(Math.random() * 1000) + 100, // 模拟数据
+        totalIdoProjects: idoProjects.length,
+        activeIdoProjects: idoProjects.filter((p) => p.status === "active").length,
       })
     }
 
     loadDashboardData()
-  }, [tokenList, airdrops, farms])
+  }, [tokenList, airdrops, farms, idoProjects])
 
   // Load deployed tokens
   useEffect(() => {
@@ -240,6 +231,13 @@ function AdminDashboard() {
       fetchFarms()
     }
   }, [activeTab, walletState.provider, fetchFarms])
+
+  // 当IDO标签被激活时，刷新IDO列表
+  useEffect(() => {
+    if (activeTab === "ido" && walletState.provider) {
+      refreshIdoData()
+    }
+  }, [activeTab, walletState.provider, refreshIdoData])
 
   // 复制到剪贴板
   const copyToClipboard = (text: string) => {
@@ -585,32 +583,69 @@ function AdminDashboard() {
 
   // 添加自定义代币
   const handleAddCustomToken = async () => {
-    if (!customTokenAddress || !walletState.provider) {
+    if (!customTokenAddress) {
       toast({
         title: "输入错误",
-        description: "请输入有效的代币地址",
+        description: "请输入代币地址",
         variant: "destructive",
       })
       return
     }
 
+    // 检查地址格式
+    let formattedAddress = customTokenAddress.trim()
+    if (!formattedAddress.startsWith("0x")) {
+      formattedAddress = "0x" + formattedAddress
+    }
+
+    // 验证地址格式
     try {
-      const provider = new ethers.BrowserProvider(walletState.provider)
-      const tokenInfo = await getTokenInfo(customTokenAddress, provider)
+      // 使用 ethers 验证地址格式
+      ethers.getAddress(formattedAddress)
+    } catch (error) {
+      console.error("地址格式无效:", error)
+      toast({
+        title: "地址格式无效",
+        description: "请输入有效的以太坊合约地址",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!walletState.provider) {
+      toast({
+        title: "钱包未连接",
+        description: "请先连接您的钱包",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      console.log("尝试添加代币:", formattedAddress)
 
       // 检查是否已存在
-      if (tokenList.some((token) => token.address.toLowerCase() === customTokenAddress.toLowerCase())) {
+      if (tokenList.some((token) => token.address.toLowerCase() === formattedAddress.toLowerCase())) {
         toast({
           title: "代币已存在",
           description: "该代币已在列表中",
           variant: "destructive",
         })
+        setIsLoading(false)
         return
       }
 
+      // 创建provider
+      const provider = new ethers.BrowserProvider(walletState.provider)
+
+      // 直接从合约获取代币信息
+      const tokenInfo = await getTokenInfo(formattedAddress, provider)
+      console.log("获取到代币信息:", tokenInfo)
+
       // 添加到列表
       const newToken = {
-        address: customTokenAddress,
+        address: formattedAddress,
         name: tokenInfo.name,
         symbol: tokenInfo.symbol,
         decimals: tokenInfo.decimals,
@@ -619,7 +654,7 @@ function AdminDashboard() {
       }
 
       setTokenList([...tokenList, newToken])
-      setSelectedTokenForManagement(customTokenAddress)
+      setSelectedTokenForManagement(formattedAddress)
       setCustomTokenAddress("")
 
       toast({
@@ -630,9 +665,11 @@ function AdminDashboard() {
       console.error("添加代币失败:", error)
       toast({
         title: "添加失败",
-        description: "无法添加代币，请确保地址有效",
+        description: `错误: ${error.message || "未知错误"}`,
         variant: "destructive",
       })
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -846,6 +883,74 @@ function AdminDashboard() {
     }
   }
 
+  // 格式化日期
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+  }
+
+  // 格式化数字
+  const formatNumber = (num: number, decimals = 2) => {
+    return num.toLocaleString(undefined, {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    })
+  }
+
+  // 计算进度
+  const calculateProgress = (project: any) => {
+    return (project.totalRaised / project.hardCap) * 100
+  }
+
+  // 获取状态徽章
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "upcoming":
+        return (
+          <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-200">
+            Upcoming
+          </Badge>
+        )
+      case "active":
+        return (
+          <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">
+            Active
+          </Badge>
+        )
+      case "ended":
+        return (
+          <Badge variant="outline" className="bg-gray-100 text-gray-800 border-gray-200">
+            Ended
+          </Badge>
+        )
+      case "cancelled":
+        return (
+          <Badge variant="outline" className="bg-red-100 text-red-800 border-red-200">
+            Cancelled
+          </Badge>
+        )
+      default:
+        return <Badge variant="outline">{status}</Badge>
+    }
+  }
+
+  // 过滤IDO项目
+  const filteredIdoProjects = idoProjects.filter((project) => {
+    const matchesSearch =
+      project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      project.tokenSymbol.toLowerCase().includes(searchQuery.toLowerCase())
+
+    const matchesStatus = statusFilter === "all" || project.status === statusFilter
+
+    return matchesSearch && matchesStatus
+  })
+
   // 如果不是管理员，显示未授权消息
   if (!isAdmin) {
     return (
@@ -908,7 +1013,7 @@ function AdminDashboard() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid grid-cols-7 w-full bg-[#F9F5EA] p-1 rounded-xl">
+        <TabsList className="grid grid-cols-8 w-full bg-[#F9F5EA] p-1 rounded-xl">
           <TabsTrigger
             value="dashboard"
             className="flex items-center data-[state=active]:bg-white data-[state=active]:text-[#523805] data-[state=active]:shadow-sm text-[#523805]/70"
@@ -958,11 +1063,19 @@ function AdminDashboard() {
             <Settings className="mr-2 h-4 w-4" />
             <span>设置</span>
           </TabsTrigger>
+          <TabsTrigger
+            value="dashboard-page"
+            className="flex items-center data-[state=active]:bg-white data-[state=active]:text-[#523805] data-[state=active]:shadow-sm text-[#523805]/70"
+            onClick={() => router.push("/admin/dashboard")}
+          >
+            <PieChart className="mr-2 h-4 w-4" />
+            <span>高级仪表盘</span>
+          </TabsTrigger>
         </TabsList>
 
         {/* 仪表盘标签 */}
         <TabsContent value="dashboard">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
             <Card className="border-[#EACC91] bg-gradient-to-br from-[#F9F5EA] to-white">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-[#523805] flex items-center">
@@ -1040,204 +1153,98 @@ function AdminDashboard() {
                 </Button>
               </CardFooter>
             </Card>
-          </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-            <div className="lg:col-span-2">
-              <Card className="border-[#EACC91]">
-                <CardHeader>
-                  <CardTitle className="flex items-center text-[#523805]">
-                    <Activity className="mr-2 h-5 w-5 text-[#987A3F]" />
-                    平台活动概览
-                  </CardTitle>
-                  <CardDescription>最近的平台活动和统计数据</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-8">
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-sm font-medium text-[#523805]">用户参与度</h4>
-                        <span className="text-xs text-[#987A3F]">过去30天</span>
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-[#987A3F]">空投参与用户</span>
-                          <span className="text-xs font-medium text-[#523805]">{dashboardStats.totalUsers}</span>
-                        </div>
-                        <Progress value={75} className="h-1" />
-
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-[#987A3F]">农场质押用户</span>
-                          <span className="text-xs font-medium text-[#523805]">
-                            {Math.floor(dashboardStats.totalUsers * 0.6)}
-                          </span>
-                        </div>
-                        <Progress value={45} className="h-1" />
-
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-[#987A3F]">IDO参与用户</span>
-                          <span className="text-xs font-medium text-[#523805]">
-                            {Math.floor(dashboardStats.totalUsers * 0.3)}
-                          </span>
-                        </div>
-                        <Progress value={30} className="h-1" />
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-sm font-medium text-[#523805]">交易活动</h4>
-                        <span className="text-xs text-[#987A3F]">过去7天</span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-4">
-                        <div className="bg-[#F9F5EA] rounded-lg p-3">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs text-[#987A3F]">总交易量</span>
-                            <TrendingUp className="h-3 w-3 text-green-500" />
-                          </div>
-                          <div className="text-lg font-bold text-[#523805]">{dashboardStats.totalTransactions}</div>
-                        </div>
-                        <div className="bg-[#F9F5EA] rounded-lg p-3">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs text-[#987A3F]">平均交易额</span>
-                            <TrendingUp className="h-3 w-3 text-green-500" />
-                          </div>
-                          <div className="text-lg font-bold text-[#523805]">$1,245</div>
-                        </div>
-                        <div className="bg-[#F9F5EA] rounded-lg p-3">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs text-[#987A3F]">活跃钱包</span>
-                            <TrendingUp className="h-3 w-3 text-green-500" />
-                          </div>
-                          <div className="text-lg font-bold text-[#523805]">{dashboardStats.totalUsers}</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            <div>
-              <Card className="border-[#EACC91] mb-6">
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center text-[#523805]">
-                    <Clock className="mr-2 h-5 w-5 text-[#987A3F]" />
-                    即将到期的活动
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {airdrops.slice(0, 3).map((airdrop, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center justify-between border-b border-[#EACC91]/30 pb-3 last:border-0 last:pb-0"
-                      >
-                        <div>
-                          <h4 className="text-sm font-medium text-[#523805]">
-                            {airdrop.tokenSymbol} 空投 #{airdrop.id}
-                          </h4>
-                          <p className="text-xs text-[#987A3F]">
-                            结束于: {new Date(airdrop.endTime * 1000).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <Badge
-                          variant={airdrop.active ? "default" : "outline"}
-                          className={airdrop.active ? "bg-[#987A3F] text-white" : "border-[#987A3F] text-[#987A3F]"}
-                        >
-                          {airdrop.active ? "活跃" : "未激活"}
-                        </Badge>
-                      </div>
-                    ))}
-
-                    {airdrops.length === 0 && (
-                      <div className="text-center py-4">
-                        <p className="text-[#987A3F]">暂无空投活动</p>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="border-[#EACC91]">
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center text-[#523805]">
-                    <Shield className="mr-2 h-5 w-5 text-[#987A3F]" />
-                    安全状态
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center">
-                        <div className="w-2 h-2 rounded-full bg-green-500 mr-2"></div>
-                        <span className="text-sm text-[#523805]">合约安全</span>
-                      </div>
-                      <Badge variant="outline" className="border-green-500 text-green-500">
-                        正常
-                      </Badge>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center">
-                        <div className="w-2 h-2 rounded-full bg-green-500 mr-2"></div>
-                        <span className="text-sm text-[#523805]">管理员权限</span>
-                      </div>
-                      <Badge variant="outline" className="border-green-500 text-green-500">
-                        安全
-                      </Badge>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center">
-                        <div className="w-2 h-2 rounded-full bg-green-500 mr-2"></div>
-                        <span className="text-sm text-[#523805]">资金安全</span>
-                      </div>
-                      <Badge variant="outline" className="border-green-500 text-green-500">
-                        正常
-                      </Badge>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card className="border-[#EACC91]">
-              <CardHeader>
-                <CardTitle className="flex items-center text-[#523805]">
-                  <Zap className="mr-2 h-5 w-5 text-[#987A3F]" />
-                  快速操作
+            <Card className="border-[#EACC91] bg-gradient-to-br from-[#F9F5EA] to-white">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-[#523805] flex items-center">
+                  <Rocket className="mr-2 h-4 w-4 text-[#987A3F]" />
+                  IDO项目
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="text-3xl font-bold text-[#523805]">
+                  {dashboardStats.activeIdoProjects}/{dashboardStats.totalIdoProjects}
+                </div>
+                <p className="text-xs text-[#987A3F] mt-1">活跃/总IDO项目</p>
+                <Progress
+                  value={
+                    dashboardStats.totalIdoProjects > 0
+                      ? (dashboardStats.activeIdoProjects / dashboardStats.totalIdoProjects) * 100
+                      : 0
+                  }
+                  className="h-1 mt-3"
+                />
+              </CardContent>
+              <CardFooter className="pt-0">
+                <Button
+                  variant="link"
+                  className="p-0 h-auto text-[#987A3F] hover:text-[#523805]"
+                  onClick={() => setActiveTab("ido")}
+                >
+                  管理IDO <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </CardFooter>
+            </Card>
+          </div>
+
+          {/* 其他仪表盘内容 */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <Card className="border-[#EACC91]">
+              <CardHeader>
+                <CardTitle className="text-xl text-[#523805]">快速操作</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Button
-                    className="bg-[#987A3F] hover:bg-[#523805] text-white h-auto py-4 flex flex-col items-center justify-center"
-                    onClick={() => setActiveTab("tokens")}
+                    className="bg-gradient-to-r from-[#EACC91] to-[#987A3F] hover:from-[#987A3F] hover:to-[#523805] text-[#523805] hover:text-white h-auto py-4 justify-start"
+                    onClick={() => router.push("/admin/create-ido")}
                   >
-                    <Coins className="h-6 w-6 mb-2" />
-                    <span>添加代币</span>
+                    <div className="flex flex-col items-start">
+                      <div className="flex items-center">
+                        <Rocket className="h-5 w-5 mr-2" />
+                        <span className="font-medium">创建IDO</span>
+                      </div>
+                      <span className="text-xs mt-1 text-[#523805]/80">发布新的IDO项目</span>
+                    </div>
                   </Button>
+
                   <Button
-                    className="bg-[#987A3F] hover:bg-[#523805] text-white h-auto py-4 flex flex-col items-center justify-center"
+                    className="bg-gradient-to-r from-[#EACC91] to-[#987A3F] hover:from-[#987A3F] hover:to-[#523805] text-[#523805] hover:text-white h-auto py-4 justify-start"
                     onClick={() => setActiveTab("airdrops")}
                   >
-                    <Gift className="h-6 w-6 mb-2" />
-                    <span>创建空投</span>
+                    <div className="flex flex-col items-start">
+                      <div className="flex items-center">
+                        <Gift className="h-5 w-5 mr-2" />
+                        <span className="font-medium">创建空投</span>
+                      </div>
+                      <span className="text-xs mt-1 text-[#523805]/80">发起新的代币空投</span>
+                    </div>
                   </Button>
+
                   <Button
-                    className="bg-[#987A3F] hover:bg-[#523805] text-white h-auto py-4 flex flex-col items-center justify-center"
+                    className="bg-gradient-to-r from-[#EACC91] to-[#987A3F] hover:from-[#987A3F] hover:to-[#523805] text-[#523805] hover:text-white h-auto py-4 justify-start"
                     onClick={() => setActiveTab("farms")}
                   >
-                    <Tractor className="h-6 w-6 mb-2" />
-                    <span>添加农场</span>
+                    <div className="flex flex-col items-start">
+                      <div className="flex items-center">
+                        <Tractor className="h-5 w-5 mr-2" />
+                        <span className="font-medium">添加农场</span>
+                      </div>
+                      <span className="text-xs mt-1 text-[#523805]/80">创建新的流动性挖矿农场</span>
+                    </div>
                   </Button>
+
                   <Button
-                    className="bg-[#987A3F] hover:bg-[#523805] text-white h-auto py-4 flex flex-col items-center justify-center"
-                    onClick={() => setActiveTab("ido")}
+                    className="bg-gradient-to-r from-[#EACC91] to-[#987A3F] hover:from-[#987A3F] hover:to-[#523805] text-[#523805] hover:text-white h-auto py-4 justify-start"
+                    onClick={() => router.push("/admin/dashboard")}
                   >
-                    <Rocket className="h-6 w-6 mb-2" />
-                    <span>创建IDO</span>
+                    <div className="flex flex-col items-start">
+                      <div className="flex items-center">
+                        <BarChart4 className="h-5 w-5 mr-2" />
+                        <span className="font-medium">查看统计</span>
+                      </div>
+                      <span className="text-xs mt-1 text-[#523805]/80">查看平台详细统计数据</span>
+                    </div>
                   </Button>
                 </div>
               </CardContent>
@@ -1245,35 +1252,42 @@ function AdminDashboard() {
 
             <Card className="border-[#EACC91]">
               <CardHeader>
-                <CardTitle className="flex items-center text-[#523805]">
-                  <Award className="mr-2 h-5 w-5 text-[#987A3F]" />
-                  平台统计
-                </CardTitle>
+                <CardTitle className="text-xl text-[#523805]">最近活动</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <BarChart className="h-5 w-5 text-[#987A3F] mr-2" />
-                      <span className="text-sm text-[#523805]">总锁仓价值 (TVL)</span>
+                  {/* 模拟活动数据 */}
+                  <div className="flex items-start gap-3 p-3 bg-[#F9F5EA] rounded-lg">
+                    <div className="bg-[#EACC91] p-2 rounded-full">
+                      <Rocket className="h-4 w-4 text-[#523805]" />
                     </div>
-                    <span className="font-medium text-[#523805]">$1,234,567</span>
+                    <div>
+                      <p className="text-sm font-medium text-[#523805]">新IDO项目已创建</p>
+                      <p className="text-xs text-[#523805]/70">项目 "Hamster Finance" 已成功创建</p>
+                      <p className="text-xs text-[#523805]/50 mt-1">2小时前</p>
+                    </div>
                   </div>
-                  <Separator className="bg-[#EACC91]/50" />
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <PieChart className="h-5 w-5 text-[#987A3F] mr-2" />
-                      <span className="text-sm text-[#523805]">总交易量</span>
+
+                  <div className="flex items-start gap-3 p-3 bg-[#F9F5EA] rounded-lg">
+                    <div className="bg-[#EACC91] p-2 rounded-full">
+                      <Gift className="h-4 w-4 text-[#523805]" />
                     </div>
-                    <span className="font-medium text-[#523805]">$9,876,543</span>
+                    <div>
+                      <p className="text-sm font-medium text-[#523805]">空投已激活</p>
+                      <p className="text-xs text-[#523805]/70">CAKE 代币空投 #3 已激活</p>
+                      <p className="text-xs text-[#523805]/50 mt-1">1天前</p>
+                    </div>
                   </div>
-                  <Separator className="bg-[#EACC91]/50" />
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <DollarSign className="h-5 w-5 text-[#987A3F] mr-2" />
-                      <span className="text-sm text-[#523805]">平台手续费收入</span>
+
+                  <div className="flex items-start gap-3 p-3 bg-[#F9F5EA] rounded-lg">
+                    <div className="bg-[#EACC91] p-2 rounded-full">
+                      <Tractor className="h-4 w-4 text-[#523805]" />
                     </div>
-                    <span className="font-medium text-[#523805]">$123,456</span>
+                    <div>
+                      <p className="text-sm font-medium text-[#523805]">农场奖励已更新</p>
+                      <p className="text-xs text-[#523805]/70">CAKE-ETH 农场的奖励已更新</p>
+                      <p className="text-xs text-[#523805]/50 mt-1">2天前</p>
+                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -1283,911 +1297,697 @@ function AdminDashboard() {
 
         {/* 概览标签 */}
         <TabsContent value="overview">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <Card className="border-[#EACC91] bg-gradient-to-br from-[#F9F5EA] to-white">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-[#523805]">总空投数量</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-[#523805]">{airdrops.length}</div>
-                <p className="text-xs text-[#987A3F] mt-1">所有创建的空投活动</p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-[#EACC91] bg-gradient-to-br from-[#F9F5EA] to-white">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-[#523805]">活跃空投</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-[#523805]">{airdrops.filter((a) => a.active).length}</div>
-                <p className="text-xs text-[#987A3F] mt-1">当前正在进行的空投</p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-[#EACC91] bg-gradient-to-br from-[#F9F5EA] to-white">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-[#523805]">已分发代币</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-[#523805]">
-                  {airdrops
-                    .reduce((total, airdrop) => {
-                      return total + airdrop.claimedUsers.length * Number.parseFloat(airdrop.amount)
-                    }, 0)
-                    .toLocaleString()}
-                </div>
-                <p className="text-xs text-[#987A3F] mt-1">已被用户领取的代币总量</p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-[#EACC91] bg-gradient-to-br from-[#F9F5EA] to-white">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-[#523805]">参与用户</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-[#523805]">
-                  {new Set(airdrops.flatMap((a) => a.eligibleUsers)).size}
-                </div>
-                <p className="text-xs text-[#987A3F] mt-1">有资格参与空投的用户数量</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card className="border-[#EACC91]">
               <CardHeader>
-                <CardTitle className="flex items-center text-[#523805]">
-                  <Gift className="mr-2 h-5 w-5 text-[#987A3F]" />
-                  最近空投
-                </CardTitle>
+                <CardTitle className="text-xl text-[#523805]">平台概览</CardTitle>
+                <CardDescription>平台关键指标</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {airdrops.slice(0, 3).map((airdrop) => (
-                    <div
-                      key={airdrop.id}
-                      className="flex items-center justify-between border-b border-[#EACC91]/30 pb-4"
-                    >
-                      <div>
-                        <h3 className="font-medium flex items-center text-[#523805]">
-                          <Coins className="mr-2 h-4 w-4 text-[#987A3F]" />
-                          {airdrop.tokenSymbol} 空投 #{airdrop.id}
-                        </h3>
-                        <p className="text-sm text-[#987A3F] flex items-center mt-1">
-                          <Calendar className="mr-1 h-3 w-3" />
-                          {new Date(airdrop.startTime * 1000).toLocaleDateString()} -
-                          {new Date(airdrop.endTime * 1000).toLocaleDateString()}
-                        </p>
+                  <div className="flex items-center justify-between p-3 bg-[#F9F5EA] rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-5 w-5 text-[#987A3F]" />
+                      <span className="text-[#523805]">总用户数</span>
+                    </div>
+                    <span className="font-medium text-[#523805]">
+                      {new Set(airdrops.flatMap((a) => a.eligibleUsers)).size}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 bg-[#F9F5EA] rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Gift className="h-5 w-5 text-[#987A3F]" />
+                      <span className="text-[#523805]">空投总数</span>
+                    </div>
+                    <span className="font-medium text-[#523805]">{airdrops.length}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 bg-[#F9F5EA] rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Rocket className="h-5 w-5 text-[#987A3F]" />
+                      <span className="text-[#523805]">IDO总数</span>
+                    </div>
+                    <span className="font-medium text-[#523805]">{idoProjects.length}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 bg-[#F9F5EA] rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Tractor className="h-5 w-5 text-[#987A3F]" />
+                      <span className="text-[#523805]">农场总数</span>
+                    </div>
+                    <span className="font-medium text-[#523805]">{farms.length}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 bg-[#F9F5EA] rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Coins className="h-5 w-5 text-[#987A3F]" />
+                      <span className="text-[#523805]">平台总交易量</span>
+                    </div>
+                    <span className="font-medium text-[#523805]">$1,234,567</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-[#EACC91]">
+              <CardHeader>
+                <CardTitle className="text-xl text-[#523805]">最新项目</CardTitle>
+                <CardDescription>最近创建的项目</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {idoProjects.slice(0, 3).map((project, index) => (
+                    <div key={index} className="flex items-center justify-between p-3 bg-[#F9F5EA] rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-full overflow-hidden border border-[#EACC91]">
+                          <Image
+                            src={project.tokenLogo || "/placeholder.svg"}
+                            alt={project.name}
+                            width={40}
+                            height={40}
+                            className="object-cover"
+                          />
+                        </div>
+                        <div>
+                          <div className="font-medium text-[#523805]">{project.name}</div>
+                          <div className="text-xs text-[#523805]/70">{project.tokenSymbol}</div>
+                        </div>
                       </div>
-                      <Badge
-                        variant={airdrop.active ? "default" : "outline"}
-                        className={
-                          airdrop.active
-                            ? "bg-[#987A3F] hover:bg-[#523805] text-white"
-                            : "border-[#987A3F] text-[#987A3F]"
-                        }
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-[#EACC91] text-[#523805]"
+                        onClick={() => router.push(`/admin/ido-management?projectId=${project.id}`)}
                       >
-                        {airdrop.active ? "活跃" : "未激活"}
-                      </Badge>
+                        <ExternalLink className="h-4 w-4" />
+                      </Button>
                     </div>
                   ))}
-                </div>
-              </CardContent>
-            </Card>
 
-            <Card className="border-[#EACC91]">
-              <CardHeader>
-                <CardTitle className="flex items-center text-[#523805]">
-                  <Coins className="mr-2 h-5 w-5 text-[#987A3F]" />
-                  代币余额
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {isTokensLoading
-                    ? // Loading skeleton for token balances
-                      Array(3)
-                        .fill(0)
-                        .map((_, index) => (
-                          <div
-                            key={`balance-skeleton-${index}`}
-                            className="flex items-center justify-between border-b border-[#EACC91]/30 pb-4"
-                          >
-                            <div className="flex items-center">
-                              <div className="w-8 h-8 rounded-full bg-[#EACC91]/50 animate-pulse mr-3"></div>
-                              <div>
-                                <div className="w-24 h-5 bg-[#EACC91]/50 animate-pulse rounded-md mb-1"></div>
-                                <div className="w-16 h-4 bg-[#EACC91]/50 animate-pulse rounded-md"></div>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <div className="w-16 h-5 bg-[#EACC91]/50 animate-pulse rounded-md mb-1 ml-auto"></div>
-                              <div className="w-12 h-4 bg-[#EACC91]/50 animate-pulse rounded-md ml-auto"></div>
-                            </div>
-                          </div>
-                        ))
-                    : tokenList.slice(0, 5).map((token) => (
-                        // Existing token balance display
-                        <div
-                          key={token.address}
-                          className="flex items-center justify-between border-b border-[#EACC91]/30 pb-4"
-                        >
-                          <div className="flex items-center">
-                            <div className="w-8 h-8 rounded-full bg-[#EACC91]/50 flex items-center justify-center mr-3">
-                              <span className="text-xs font-bold text-[#523805]">{token.symbol.substring(0, 2)}</span>
-                            </div>
-                            <div>
-                              <h3 className="font-medium text-[#523805]">{token.name}</h3>
-                              <p className="text-sm text-[#987A3F]">{token.symbol}</p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-medium text-[#523805]">
-                              {selectedTokenForManagement === token.address ? balance : "?"}
-                            </p>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-xs text-[#987A3F] hover:text-[#523805] hover:bg-[#EACC91]/20"
-                              onClick={() => setSelectedTokenForManagement(token.address)}
-                            >
-                              <RefreshCw className="h-3 w-3 mr-1" />
-                              刷新
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
+                  {idoProjects.length === 0 && (
+                    <div className="text-center py-6 text-[#523805]/70">
+                      <p>暂无IDO项目</p>
+                    </div>
+                  )}
+
+                  <Button
+                    variant="outline"
+                    className="w-full border-[#EACC91] text-[#523805] hover:bg-[#F9F5EA]"
+                    onClick={() => setActiveTab("ido")}
+                  >
+                    查看所有项目
+                  </Button>
                 </div>
               </CardContent>
             </Card>
           </div>
         </TabsContent>
 
-        {/* 代币管理标签 */}
+        {/* 代币标签 */}
         <TabsContent value="tokens">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-1">
-              <Card className="border-[#EACC91] h-full">
-                <CardHeader className="bg-gradient-to-r from-[#F9F5EA] to-transparent">
-                  <CardTitle className="flex items-center text-[#523805]">
-                    <Coins className="mr-2 h-5 w-5 text-[#987A3F]" />
-                    代币列表
-                  </CardTitle>
-                  <CardDescription>管理您的ERC20代币</CardDescription>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="md:col-span-2">
+              <Card className="border-[#EACC91]">
+                <CardHeader>
+                  <CardTitle className="text-xl text-[#523805]">代币管理</CardTitle>
+                  <CardDescription>管理您的代币</CardDescription>
                 </CardHeader>
-                <CardContent className="pt-4">
-                  <div className="space-y-2">
-                    <div className="relative">
-                      <Search className="absolute left-2 top-2.5 h-4 w-4 text-[#987A3F]" />
-                      <Input placeholder="搜索代币..." className="pl-8 border-[#EACC91] focus-visible:ring-[#987A3F]" />
+                <CardContent>
+                  {isTokensLoading ? (
+                    <div className="flex justify-center items-center py-10">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#987A3F]"></div>
                     </div>
-
-                    <div className="mt-4 space-y-2 max-h-[400px] overflow-y-auto pr-2">
-                      {isTokensLoading ? (
-                        // Loading skeleton UI
-                        Array(5)
-                          .fill(0)
-                          .map((_, index) => (
-                            <div
-                              key={`skeleton-${index}`}
-                              className="w-full h-12 bg-[#F9F5EA] animate-pulse rounded-md mb-2"
-                            />
-                          ))
-                      ) : tokenList.length === 0 ? (
-                        <div className="text-center py-4">
-                          <p className="text-[#987A3F]">暂无代币</p>
-                          <p className="text-xs text-[#987A3F] mt-1">请添加自定义代币</p>
-                        </div>
-                      ) : (
-                        tokenList.map((token) => (
-                          <Button
-                            key={token.address}
-                            variant="outline"
-                            className={`w-full justify-start border-[#EACC91] hover:bg-[#F9F5EA] ${
-                              selectedTokenForManagement === token.address ? "bg-[#EACC91]/30 border-[#987A3F]" : ""
-                            }`}
-                            onClick={() => setSelectedTokenForManagement(token.address)}
-                          >
-                            <div className="w-6 h-6 rounded-full bg-[#EACC91]/50 flex items-center justify-center mr-2">
-                              <span className="text-xs font-bold text-[#523805]">{token.symbol.substring(0, 2)}</span>
-                            </div>
-                            <div className="text-left flex-grow">
-                              <div className="font-medium text-sm text-[#523805]">{token.symbol}</div>
-                              <div className="text-xs text-[#987A3F]">{token.name}</div>
-                            </div>
-                            {token.owner === walletState.address && (
-                              <Badge className="ml-2 bg-[#987A3F] text-white text-xs px-1.5 py-0">所有者</Badge>
-                            )}
-                          </Button>
-                        ))
-                      )}
+                  ) : tokenList.length === 0 ? (
+                    <div className="bg-[#F9F5EA] rounded-xl p-6 border border-[#EACC91]/40 text-center">
+                      <p className="text-[#523805]">暂无代币。</p>
+                      <p className="text-[#523805]/70 text-sm mt-2">添加自定义代币或创建新代币。</p>
                     </div>
-
-                    <Separator className="my-4 bg-[#EACC91]" />
-
-                    <div className="space-y-2">
-                      <Label htmlFor="customTokenAddress" className="text-[#523805]">
-                        添加自定义代币
-                      </Label>
-                      <div className="flex space-x-2">
-                        <Input
-                          id="customTokenAddress"
-                          placeholder="代币合约地址"
-                          value={customTokenAddress}
-                          onChange={(e) => setCustomTokenAddress(e.target.value)}
-                          className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                        />
-                        <Button
-                          onClick={handleAddCustomToken}
-                          disabled={isTokenLoading}
-                          className="bg-[#987A3F] hover:bg-[#523805] text-white"
-                        >
-                          <Plus className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            <div className="lg:col-span-2">
-              {isTokensLoading ? (
-                <Card className="border-[#EACC91]">
-                  <CardHeader>
-                    <div className="w-48 h-7 bg-[#F9F5EA] animate-pulse rounded-md mb-2"></div>
-                    <div className="w-64 h-5 bg-[#F9F5EA] animate-pulse rounded-md"></div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 gap-4 mb-6">
-                      <div className="bg-[#F9F5EA] rounded-lg p-4">
-                        <div className="w-20 h-5 bg-[#EACC91]/50 animate-pulse rounded-md mb-2"></div>
-                        <div className="w-32 h-8 bg-[#EACC91]/50 animate-pulse rounded-md"></div>
-                      </div>
-                      <div className="bg-[#F9F5EA] rounded-lg p-4">
-                        <div className="w-20 h-5 bg-[#EACC91]/50 animate-pulse rounded-md mb-2"></div>
-                        <div className="w-32 h-8 bg-[#EACC91]/50 animate-pulse rounded-md"></div>
-                      </div>
-                    </div>
-                    <div className="w-full h-40 bg-[#F9F5EA] animate-pulse rounded-lg"></div>
-                  </CardContent>
-                </Card>
-              ) : tokenInfo ? (
-                <div className="space-y-6">
-                  <Card className="border-[#EACC91]">
-                    <CardHeader className="bg-gradient-to-r from-[#F9F5EA] to-transparent">
-                      <div className="flex justify-between items-center">
-                        <CardTitle className="flex items-center text-[#523805]">
-                          <Coins className="mr-2 h-5 w-5 text-[#987A3F]" />
-                          {tokenInfo.name} ({tokenInfo.symbol})
-                        </CardTitle>
-                        <Badge variant="outline" className="font-mono text-xs border-[#EACC91] text-[#523805]">
-                          {selectedTokenForManagement.substring(0, 6)}...{selectedTokenForManagement.substring(38)}
-                        </Badge>
-                      </div>
-                      <CardDescription className="flex items-center">
-                        <Button
-                          variant="link"
-                          className="p-0 h-auto text-[#987A3F]"
-                          onClick={() =>
-                            window.open(`https://etherscan.io/token/${selectedTokenForManagement}`, "_blank")
-                          }
-                        >
-                          在区块浏览器中查看 <ExternalLink className="ml-1 h-3 w-3" />
-                        </Button>
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-2 gap-4 mb-6">
-                        <div className="bg-[#F9F5EA] rounded-lg p-4">
-                          <div className="text-sm text-[#987A3F]">余额</div>
-                          <div className="text-2xl font-bold text-[#523805]">{balance}</div>
-                          <div className="text-xs text-[#987A3F]">{tokenInfo.symbol}</div>
-                        </div>
-                        <div className="bg-[#F9F5EA] rounded-lg p-4">
-                          <div className="text-sm text-[#987A3F]">精度</div>
-                          <div className="text-2xl font-bold text-[#523805]">{tokenInfo.decimals}</div>
-                          <div className="text-xs text-[#987A3F]">小数位</div>
-                        </div>
-                      </div>
-
-                      <div className="bg-[#F9F5EA] rounded-lg p-4 mb-6">
-                        <div className="flex justify-between items-center">
-                          <div className="text-sm text-[#987A3F]">合约所有者</div>
-                          {owner === walletState.address && (
-                            <Badge className="bg-[#987A3F] text-white">您是所有者</Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center mt-1">
-                          <div className="font-mono text-sm text-[#523805] truncate">{owner || "未知"}</div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 ml-1 text-[#987A3F] hover:text-[#523805] hover:bg-[#EACC91]/20"
-                            onClick={() => owner && copyToClipboard(owner)}
-                            disabled={!owner}
-                          >
-                            <Copy className="h-3 w-3" />
-                          </Button>
-                        </div>
-                        <div className="text-xs text-[#987A3F] mt-1">
-                          {owner === walletState.address
-                            ? "您可以执行铸造、销毁和暂停等所有者操作"
-                            : "只有所有者可以执行特权操作"}
-                        </div>
-                      </div>
-
-                      <Tabs defaultValue="transfer" className="w-full">
-                        <TabsList className="w-full bg-[#F9F5EA] p-1 rounded-xl">
-                          <TabsTrigger
-                            value="transfer"
-                            className="flex-1 data-[state=active]:bg-white data-[state=active]:text-[#523805] data-[state=active]:shadow-sm text-[#523805]/70"
-                          >
-                            <ArrowUpRight className="mr-2 h-4 w-4" />
-                            转账
-                          </TabsTrigger>
-                          <TabsTrigger
-                            value="approve"
-                            className="flex-1 data-[state=active]:bg-white data-[state=active]:text-[#523805] data-[state=active]:shadow-sm text-[#523805]/70"
-                          >
-                            <Check className="mr-2 h-4 w-4" />
-                            授权
-                          </TabsTrigger>
-                          <TabsTrigger
-                            value="query"
-                            className="flex-1 data-[state=active]:bg-white data-[state=active]:text-[#523805] data-[state=active]:shadow-sm text-[#523805]/70"
-                          >
-                            <Search className="mr-2 h-4 w-4" />
-                            查询
-                          </TabsTrigger>
-                          <TabsTrigger
-                            value="mint"
-                            className="flex-1 data-[state=active]:bg-white data-[state=active]:text-[#523805] data-[state=active]:shadow-sm text-[#523805]/70"
-                          >
-                            <Plus className="mr-2 h-4 w-4" />
-                            铸造
-                          </TabsTrigger>
-                          <TabsTrigger
-                            value="burn"
-                            className="flex-1 data-[state=active]:bg-white data-[state=active]:text-[#523805] data-[state=active]:shadow-sm text-[#523805]/70"
-                          >
-                            <Flame className="mr-2 h-4 w-4" />
-                            销毁
-                          </TabsTrigger>
-                        </TabsList>
-
-                        {/* 转账表单 */}
-                        <TabsContent value="transfer" className="mt-4 space-y-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="recipientAddress" className="text-[#523805]">
-                              收款地址
-                            </Label>
-                            <Input
-                              id="recipientAddress"
-                              placeholder="输入收款地址"
-                              value={recipientAddress}
-                              onChange={(e) => setRecipientAddress(e.target.value)}
-                              className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="transferAmount" className="text-[#523805]">
-                              转账数量
-                            </Label>
-                            <Input
-                              id="transferAmount"
-                              type="number"
-                              placeholder="输入转账数量"
-                              value={transferAmount}
-                              onChange={(e) => setTransferAmount(e.target.value)}
-                              className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                            />
-                          </div>
-                          <Button
-                            onClick={handleTransferToken}
-                            disabled={isTokenLoading}
-                            className="w-full bg-[#987A3F] hover:bg-[#523805] text-white"
-                          >
-                            转账
-                          </Button>
-                        </TabsContent>
-
-                        {/* 授权表单 */}
-                        <TabsContent value="approve" className="mt-4 space-y-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="spenderAddress" className="text-[#523805]">
-                              授权地址
-                            </Label>
-                            <Input
-                              id="spenderAddress"
-                              placeholder="输入被授权地址"
-                              value={spenderAddress}
-                              onChange={(e) => setSpenderAddress(e.target.value)}
-                              className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="approveAmount" className="text-[#523805]">
-                              授权数量
-                            </Label>
-                            <Input
-                              id="approveAmount"
-                              type="number"
-                              placeholder="输入授权数量"
-                              value={approveAmount}
-                              onChange={(e) => setApproveAmount(e.target.value)}
-                              className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                            />
-                          </div>
-                          <Button
-                            onClick={handleApproveToken}
-                            disabled={isTokenLoading || isLoading}
-                            className="w-full bg-[#987A3F] hover:bg-[#523805] text-white"
-                          >
-                            授权
-                          </Button>
-                        </TabsContent>
-
-                        {/* 查询表单 - 已在下方卡片中实现 */}
-                        <TabsContent value="query" className="mt-4">
-                          <div className="p-4 bg-[#F9F5EA] rounded-lg">
-                            <p className="text-[#523805]">查询功能已在下方卡片中提供，请向下滚动使用查询功能。</p>
-                          </div>
-                        </TabsContent>
-
-                        {/* 铸造表单 */}
-                        <TabsContent value="mint" className="mt-4 space-y-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="mintToAddress" className="text-[#523805]">
-                              接收地址
-                            </Label>
-                            <Input
-                              id="mintToAddress"
-                              placeholder="输入接收铸造代币的地址"
-                              value={mintToAddress}
-                              onChange={(e) => setMintToAddress(e.target.value)}
-                              className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="mintAmount" className="text-[#523805]">
-                              铸造数量
-                            </Label>
-                            <Input
-                              id="mintAmount"
-                              type="number"
-                              placeholder="输入铸造数量"
-                              value={mintAmount}
-                              onChange={(e) => setMintAmount(e.target.value)}
-                              className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                            />
-                          </div>
-                          <Button
-                            onClick={handleMintToken}
-                            disabled={isTokenLoading}
-                            className="w-full bg-[#987A3F] hover:bg-[#523805] text-white"
-                          >
-                            铸造
-                          </Button>
-                          {owner !== walletState.address && (
-                            <Alert variant="destructive">
-                              <AlertCircle className="h-4 w-4" />
-                              <AlertTitle>权限提示</AlertTitle>
-                              <AlertDescription>
-                                您不是代币所有者，铸造操作可能会失败。只有代币所有者才能执行铸造操作。
-                              </AlertDescription>
-                            </Alert>
-                          )}
-                        </TabsContent>
-
-                        {/* 销毁表单 */}
-                        <TabsContent value="burn" className="mt-4 space-y-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="burnAmount" className="text-[#523805]">
-                              销毁数量
-                            </Label>
-                            <Input
-                              id="burnAmount"
-                              type="number"
-                              placeholder="输入销毁数量"
-                              value={burnAmount}
-                              onChange={(e) => setBurnAmount(e.target.value)}
-                              className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                            />
-                          </div>
-                          <Button
-                            onClick={handleBurnToken}
-                            disabled={isTokenLoading}
-                            className="w-full bg-[#987A3F] hover:bg-[#523805] text-white"
-                          >
-                            销毁
-                          </Button>
-                          <div className="mt-2">
-                            <Alert variant="outline" className="border-[#EACC91]">
-                              <AlertCircle className="h-4 w-4 text-[#987A3F]" />
-                              <AlertTitle className="text-[#523805]">警告</AlertTitle>
-                              <AlertDescription className="text-[#987A3F]">
-                                销毁操作不可逆，请确认销毁数量后再操作。
-                              </AlertDescription>
-                            </Alert>
-                          </div>
-                        </TabsContent>
-                      </Tabs>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="border-[#EACC91]">
-                    <CardHeader className="bg-gradient-to-r from-[#F9F5EA] to-transparent">
-                      <CardTitle className="flex items-center text-[#523805]">
-                        <Search className="mr-2 h-5 w-5 text-[#987A3F]" />
-                        查询功能
-                      </CardTitle>
-                      <CardDescription>查询代币余额和授权额度</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      {/* 查询余额 */}
-                      <div>
-                        <h4 className="text-sm font-medium text-[#523805] mb-2">查询余额</h4>
-                        <div className="flex space-x-2">
-                          <Input
-                            placeholder="地址"
-                            value={queryBalanceAddress}
-                            onChange={(e) => setQueryBalanceAddress(e.target.value)}
-                            className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                          />
-                          <Button
-                            onClick={handleQueryBalance}
-                            disabled={isTokenLoading}
-                            className="bg-[#987A3F] hover:bg-[#523805] text-white"
-                          >
-                            查询
-                          </Button>
-                        </div>
-                        {queryBalanceResult && (
-                          <div className="mt-2">
-                            <span className="text-sm text-[#987A3F]">余额:</span>
-                            <span className="font-medium text-[#523805]">{queryBalanceResult}</span>
-                            <span className="text-xs text-[#987A3F]"> {tokenInfo.symbol}</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* 查询授权额度 */}
-                      <div>
-                        <h4 className="text-sm font-medium text-[#523805] mb-2">查询授权额度</h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                          <Input
-                            placeholder="所有者地址"
-                            value={queryAllowanceOwner}
-                            onChange={(e) => setQueryAllowanceOwner(e.target.value)}
-                            className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                          />
-                          <Input
-                            placeholder="授权者地址"
-                            value={queryAllowanceSpender}
-                            onChange={(e) => setQueryAllowanceSpender(e.target.value)}
-                            className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                          />
-                        </div>
-                        <Button
-                          onClick={handleQueryAllowance}
-                          disabled={isTokenLoading}
-                          className="mt-2 bg-[#987A3F] hover:bg-[#523805] text-white"
-                        >
-                          查询
-                        </Button>
-                        {queryAllowanceResult && (
-                          <div className="mt-2">
-                            <span className="text-sm text-[#987A3F]">授权额度:</span>
-                            <span className="font-medium text-[#523805]">{queryAllowanceResult}</span>
-                            <span className="text-xs text-[#987A3F]"> {tokenInfo.symbol}</span>
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              ) : (
-                <Card className="border-[#EACC91]">
-                  <CardHeader>
-                    <CardTitle className="text-[#523805]">请选择一个代币</CardTitle>
-                    <CardDescription>从左侧列表中选择一个代币以进行管理</CardDescription>
-                  </CardHeader>
-                </Card>
-              )}
-            </div>
-          </div>
-        </TabsContent>
-
-        {/* 空投管理标签 */}
-        <TabsContent value="airdrops">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-bold text-[#523805]">空投管理</h2>
-            <div className="flex gap-2">
-              <Button
-                className="bg-[#987A3F] hover:bg-[#523805] text-white"
-                onClick={() => setActiveTab("create-airdrop")}
-              >
-                <Gift className="mr-2 h-4 w-4" />
-                创建空投
-              </Button>
-              <Button variant="outline" className="border-[#987A3F] text-[#987A3F] hover:bg-[#F9F5EA]">
-                <Settings className="mr-2 h-4 w-4" />
-                高级空投创建
-              </Button>
-            </div>
-          </div>
-
-          {isAirdropLoading && !isAirdropInitialized ? (
-            <Card className="border-[#EACC91] p-8">
-              <div className="flex flex-col items-center justify-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#987A3F] mb-4"></div>
-                <p className="text-[#523805]">正在加载空投数据...</p>
-              </div>
-            </Card>
-          ) : (
-            <>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* 创建空投 */}
-                <Card className="border-[#EACC91]">
-                  <CardHeader className="bg-gradient-to-r from-[#F9F5EA] to-transparent">
-                    <CardTitle className="flex items-center text-[#523805]">
-                      <Gift className="mr-2 h-5 w-5 text-[#987A3F]" />
-                      快速创建空投
-                    </CardTitle>
-                    <CardDescription>创建新的代币空投活动</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
+                  ) : (
                     <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="token-select">选择代币</Label>
+                      <div className="flex flex-col sm:flex-row gap-2 mb-4">
                         <select
-                          id="token-select"
-                          value={selectedToken}
-                          onChange={(e) => setSelectedToken(e.target.value)}
-                          className="w-full p-2 border border-[#EACC91] rounded-md focus:outline-none focus:ring-2 focus:ring-[#987A3F]"
+                          value={selectedTokenForManagement}
+                          onChange={(e) => setSelectedTokenForManagement(e.target.value)}
+                          className="flex-1 px-3 py-2 rounded-md border border-[#EACC91] text-[#523805] bg-white"
                         >
-                          <option value="">选择代币</option>
                           {tokenList.map((token) => (
                             <option key={token.address} value={token.address}>
                               {token.name} ({token.symbol})
                             </option>
                           ))}
                         </select>
+                        <Button
+                          variant="outline"
+                          className="border-[#EACC91] text-[#523805]"
+                          onClick={() => fetchBalance()}
+                        >
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                          刷新
+                        </Button>
                       </div>
+
+                      {tokenInfo && (
+                        <div className="bg-[#F9F5EA] rounded-xl p-4 border border-[#EACC91]/40 space-y-3">
+                          <div className="flex justify-between">
+                            <span className="text-[#523805]/70">代币名称</span>
+                            <span className="font-medium text-[#523805]">{tokenInfo.name}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-[#523805]/70">代币符号</span>
+                            <span className="font-medium text-[#523805]">{tokenInfo.symbol}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-[#523805]/70">小数位数</span>
+                            <span className="font-medium text-[#523805]">{tokenInfo.decimals}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-[#523805]/70">总供应量</span>
+                            <span className="font-medium text-[#523805]">
+                              {tokenInfo.totalSupply} {tokenInfo.symbol}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-[#523805]/70">您的余额</span>
+                            <span className="font-medium text-[#523805]">
+                              {balance} {tokenInfo.symbol}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-[#523805]/70">合约地址</span>
+                            <span
+                              className="font-medium text-[#523805] cursor-pointer hover:text-[#987A3F]"
+                              onClick={() => copyToClipboard(selectedTokenForManagement)}
+                            >
+                              {selectedTokenForManagement.substring(0, 6)}...
+                              {selectedTokenForManagement.substring(38)} (点击复制)
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-[#523805]/70">状态</span>
+                            <span className="font-medium text-[#523805]">
+                              {isPaused ? (
+                                <Badge variant="outline" className="bg-red-100 text-red-800 border-red-200">
+                                  已暂停
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">
+                                  活跃
+                                </Badge>
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+                        <div>
+                          <h3 className="text-lg font-medium text-[#523805] mb-3">转账代币</h3>
+                          <div className="space-y-2">
+                            <Input
+                              placeholder="接收地址"
+                              value={recipientAddress}
+                              onChange={(e) => setRecipientAddress(e.target.value)}
+                              className="border-[#EACC91] focus-visible:ring-[#987A3F]"
+                            />
+                            <Input
+                              placeholder="转账数量"
+                              value={transferAmount}
+                              onChange={(e) => setTransferAmount(e.target.value)}
+                              className="border-[#EACC91] focus-visible:ring-[#987A3F]"
+                            />
+                            <Button
+                              className="w-full bg-[#987A3F] hover:bg-[#523805] text-white"
+                              onClick={handleTransferToken}
+                              disabled={isTokenLoading}
+                            >
+                              转账
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <h3 className="text-lg font-medium text-[#523805] mb-3">授权代币</h3>
+                          <div className="space-y-2">
+                            <Input
+                              placeholder="授权地址"
+                              value={spenderAddress}
+                              onChange={(e) => setSpenderAddress(e.target.value)}
+                              className="border-[#EACC91] focus-visible:ring-[#987A3F]"
+                            />
+                            <Input
+                              placeholder="授权数量"
+                              value={approveAmount}
+                              onChange={(e) => setApproveAmount(e.target.value)}
+                              className="border-[#EACC91] focus-visible:ring-[#987A3F]"
+                            />
+                            <Button
+                              className="w-full bg-[#987A3F] hover:bg-[#523805] text-white"
+                              onClick={handleApproveToken}
+                              disabled={isTokenLoading}
+                            >
+                              授权
+                            </Button>
+                          </div>
+                        </div>
+
+                        {owner === walletState.address && (
+                          <>
+                            <div>
+                              <h3 className="text-lg font-medium text-[#523805] mb-3">铸造代币</h3>
+                              <div className="space-y-2">
+                                <Input
+                                  placeholder="接收地址"
+                                  value={mintToAddress}
+                                  onChange={(e) => setMintToAddress(e.target.value)}
+                                  className="border-[#EACC91] focus-visible:ring-[#987A3F]"
+                                />
+                                <Input
+                                  placeholder="铸造数量"
+                                  value={mintAmount}
+                                  onChange={(e) => setMintAmount(e.target.value)}
+                                  className="border-[#EACC91] focus-visible:ring-[#987A3F]"
+                                />
+                                <Button
+                                  className="w-full bg-[#987A3F] hover:bg-[#523805] text-white"
+                                  onClick={handleMintToken}
+                                  disabled={isTokenLoading}
+                                >
+                                  铸造
+                                </Button>
+                              </div>
+                            </div>
+
+                            <div>
+                              <h3 className="text-lg font-medium text-[#523805] mb-3">销毁代币</h3>
+                              <div className="space-y-2">
+                                <Input
+                                  placeholder="销毁数量"
+                                  value={burnAmount}
+                                  onChange={(e) => setBurnAmount(e.target.value)}
+                                  className="border-[#EACC91] focus-visible:ring-[#987A3F]"
+                                />
+                                <Button
+                                  className="w-full bg-[#987A3F] hover:bg-[#523805] text-white"
+                                  onClick={handleBurnToken}
+                                  disabled={isTokenLoading}
+                                >
+                                  销毁
+                                </Button>
+                              </div>
+                            </div>
+
+                            <div className="sm:col-span-2">
+                              <Button
+                                className="w-full bg-gradient-to-r from-[#EACC91] to-[#987A3F] hover:from-[#987A3F] hover:to-[#523805] text-[#523805] hover:text-white"
+                                onClick={handleTogglePause}
+                                disabled={isTokenLoading}
+                              >
+                                {isPaused ? "恢复代币" : "暂停代币"}
+                              </Button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            <div>
+              <Card className="border-[#EACC91]">
+                <CardHeader>
+                  <CardTitle className="text-xl text-[#523805]">添加代币</CardTitle>
+                  <CardDescription>添加自定义代币</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label htmlFor="customTokenAddress" className="text-sm font-medium text-[#523805]">
+                        代币合约地址
+                      </label>
                       <Input
-                        type="number"
-                        placeholder="空投数量"
-                        value={amount}
-                        onChange={(e) => setAmount(e.target.value)}
+                        id="customTokenAddress"
+                        placeholder="输入代币合约地址"
+                        value={customTokenAddress}
+                        onChange={(e) => setCustomTokenAddress(e.target.value)}
+                        className="border-[#EACC91] focus-visible:ring-[#987A3F]"
+                      />
+                    </div>
+                    <Button
+                      className="w-full bg-[#987A3F] hover:bg-[#523805] text-white"
+                      onClick={handleAddCustomToken}
+                      disabled={isTokensLoading}
+                    >
+                      添加代币
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-[#EACC91] mt-6">
+                <CardHeader>
+                  <CardTitle className="text-xl text-[#523805]">查询功能</CardTitle>
+                  <CardDescription>查询代币信息</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-6">
+                    <div className="space-y-2">
+                      <label htmlFor="queryBalanceAddress" className="text-sm font-medium text-[#523805]">
+                        查询余额
+                      </label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="queryBalanceAddress"
+                          placeholder="输入地址"
+                          value={queryBalanceAddress}
+                          onChange={(e) => setQueryBalanceAddress(e.target.value)}
+                          className="border-[#EACC91] focus-visible:ring-[#987A3F]"
+                        />
+                        <Button
+                          variant="outline"
+                          className="border-[#EACC91] text-[#523805]"
+                          onClick={handleQueryBalance}
+                          disabled={isLoading}
+                        >
+                          查询
+                        </Button>
+                      </div>
+                      {queryBalanceResult !== null && (
+                        <div className="p-2 bg-[#F9F5EA] rounded-md text-sm text-[#523805]">
+                          余额: {queryBalanceResult} {tokenInfo?.symbol}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <label htmlFor="queryAllowanceOwner" className="text-sm font-medium text-[#523805]">
+                        查询授权额度
+                      </label>
+                      <Input
+                        id="queryAllowanceOwner"
+                        placeholder="所有者地址"
+                        value={queryAllowanceOwner}
+                        onChange={(e) => setQueryAllowanceOwner(e.target.value)}
                         className="border-[#EACC91] focus-visible:ring-[#987A3F]"
                       />
                       <Input
-                        type="datetime-local"
-                        placeholder="开始时间"
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
-                        className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                      />
-                      <Input
-                        type="datetime-local"
-                        placeholder="结束时间"
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
+                        placeholder="授权地址"
+                        value={queryAllowanceSpender}
+                        onChange={(e) => setQueryAllowanceSpender(e.target.value)}
                         className="border-[#EACC91] focus-visible:ring-[#987A3F]"
                       />
                       <Button
-                        onClick={handleCreateAirdrop}
-                        disabled={isAirdropLoading}
-                        className="bg-[#987A3F] hover:bg-[#523805] text-white"
+                        variant="outline"
+                        className="w-full border-[#EACC91] text-[#523805]"
+                        onClick={handleQueryAllowance}
+                        disabled={isLoading}
                       >
-                        创建空投
+                        查询授权额度
                       </Button>
+                      {queryAllowanceResult !== null && (
+                        <div className="p-2 bg-[#F9F5EA] rounded-md text-sm text-[#523805]">
+                          授权额度: {queryAllowanceResult} {tokenInfo?.symbol}
+                        </div>
+                      )}
                     </div>
-                    {error && (
-                      <Alert variant="destructive">
-                        <AlertCircle className="h-4 w-4" />
-                        <AlertTitle>创建失败</AlertTitle>
-                        <AlertDescription>{error}</AlertDescription>
-                      </Alert>
-                    )}
-                  </CardContent>
-                </Card>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
 
-                {/* 设置资格 */}
-                <Card className="border-[#EACC91]">
-                  <CardHeader className="bg-gradient-to-r from-[#F9F5EA] to-transparent">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <CardTitle className="flex items-center text-[#523805]">
-                          <Users className="mr-2 h-5 w-5 text-[#987A3F]" />
-                          设置用户资格和金额
-                        </CardTitle>
-                        <CardDescription>设置有资格参与空投的地址及其可领取的代币数量</CardDescription>
-                      </div>
+        {/* 空投标签 */}
+        <TabsContent value="airdrops">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="md:col-span-2">
+              <Card className="border-[#EACC91]">
+                <CardHeader>
+                  <CardTitle className="text-xl text-[#523805]">空投列表</CardTitle>
+                  <CardDescription>管理您的空投活动</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {isAirdropLoading ? (
+                    <div className="flex justify-center items-center py-10">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#987A3F]"></div>
                     </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
+                  ) : airdrops.length === 0 ? (
+                    <div className="bg-[#F9F5EA] rounded-xl p-6 border border-[#EACC91]/40 text-center">
+                      <p className="text-[#523805]">暂无空投活动。</p>
+                      <p className="text-[#523805]/70 text-sm mt-2">创建您的第一个空投活动。</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-[#523805]">ID</TableHead>
+                            <TableHead className="text-[#523805]">代币</TableHead>
+                            <TableHead className="text-[#523805]">总量</TableHead>
+                            <TableHead className="text-[#523805]">时间</TableHead>
+                            <TableHead className="text-[#523805]">状态</TableHead>
+                            <TableHead className="text-[#523805]">操作</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {airdrops.map((airdrop) => (
+                            <TableRow key={airdrop.id}>
+                              <TableCell className="font-medium">{airdrop.id}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center">
+                                  <div className="h-6 w-6 rounded-full overflow-hidden mr-2">
+                                    <Image
+                                      src={`/abstract-geometric-shapes.png?key=8bhoz&height=24&width=24&query=${airdrop.tokenSymbol} token`}
+                                      alt={airdrop.tokenSymbol}
+                                      width={24}
+                                      height={24}
+                                      className="object-cover"
+                                    />
+                                  </div>
+                                  <span>{airdrop.tokenSymbol}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>{airdrop.amount}</TableCell>
+                              <TableCell>
+                                <div className="text-xs">
+                                  <div className="flex items-center">
+                                    <Calendar className="h-3 w-3 mr-1" />
+                                    {new Date(airdrop.startTime * 1000).toLocaleDateString()}
+                                  </div>
+                                  <div className="flex items-center mt-1">
+                                    <Clock className="h-3 w-3 mr-1" />
+                                    {new Date(airdrop.endTime * 1000).toLocaleDateString()}
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                {airdrop.active ? (
+                                  <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">
+                                    活跃
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="bg-gray-100 text-gray-800 border-gray-200">
+                                    未激活
+                                  </Badge>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 w-8 p-0 border-[#EACC91]"
+                                    onClick={() => setSelectedAirdropId(airdrop.id)}
+                                  >
+                                    <Users className="h-4 w-4 text-[#523805]" />
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 w-8 p-0 border-[#EACC91]"
+                                    onClick={() => handleToggleAirdropStatus(airdrop.id, airdrop.active)}
+                                  >
+                                    {airdrop.active ? (
+                                      <XCircle className="h-4 w-4 text-red-500" />
+                                    ) : (
+                                      <CheckCircle className="h-4 w-4 text-green-500" />
+                                    )}
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            <div>
+              <Card className="border-[#EACC91]">
+                <CardHeader>
+                  <CardTitle className="text-xl text-[#523805]">创建空投</CardTitle>
+                  <CardDescription>创建新的空投活动</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="airdrop-select">选择空投</Label>
+                      <label htmlFor="selectedToken" className="text-sm font-medium text-[#523805]">
+                        代币
+                      </label>
                       <select
-                        id="airdrop-select"
-                        value={selectedAirdropId?.toString() || ""}
-                        onChange={(e) => setSelectedAirdropId(Number(e.target.value))}
-                        className="w-full p-2 border border-[#EACC91] rounded-md focus:outline-none focus:ring-2 focus:ring-[#987A3F]"
+                        id="selectedToken"
+                        value={selectedToken}
+                        onChange={(e) => setSelectedToken(e.target.value)}
+                        className="w-full px-3 py-2 rounded-md border border-[#EACC91] text-[#523805] bg-white"
                       >
-                        <option value="">选择空投</option>
-                        {airdrops.map((airdrop) => (
-                          <option key={airdrop.id} value={String(airdrop.id)}>
-                            空投 #{airdrop.id}
+                        <option value="">选择代币</option>
+                        {tokenList.map((token) => (
+                          <option key={token.address} value={token.address}>
+                            {token.name} ({token.symbol})
                           </option>
                         ))}
                       </select>
                     </div>
 
-                    <div className="flex items-center justify-between">
-                      <Label className="text-[#523805]">输入格式</Label>
-                      <div className="flex items-center space-x-2">
-                        <Button
-                          variant={eligibilityFormat === "simple" ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => setEligibilityFormat("simple")}
-                          className={
-                            eligibilityFormat === "simple"
-                              ? "bg-[#987A3F] hover:bg-[#523805] text-white"
-                              : "border-[#EACC91] text-[#987A3F]"
-                          }
-                        >
-                          简单模式
-                        </Button>
-                        <Button
-                          variant={eligibilityFormat === "advanced" ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => setEligibilityFormat("advanced")}
-                          className={
-                            eligibilityFormat === "advanced"
-                              ? "bg-[#987A3F] hover:bg-[#523805] text-white"
-                              : "border-[#EACC91] text-[#987A3F]"
-                          }
-                        >
-                          高级模式
-                        </Button>
-                      </div>
-                    </div>
-
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="eligibilityInput" className="text-[#523805]">
-                          {eligibilityFormat === "simple" ? "用户地址列表" : "用户地址和金额列表"}
-                        </Label>
-                        <span className="text-xs text-[#987A3F]">
-                          {eligibilityFormat === "simple" ? "每行一个地址" : "格式: 地址,数量"}
-                        </span>
-                      </div>
-                      <Textarea
-                        id="eligibilityInput"
-                        placeholder={eligibilityFormat === "simple" ? "0x123...\n0x456..." : "0x123...,10\n0x456...,5"}
-                        value={eligibilityInput}
-                        onChange={(e) => setEligibilityInput(e.target.value)}
-                        className="border-[#EACC91] focus-visible:ring-[#987A3F] min-h-[150px]"
+                      <label htmlFor="amount" className="text-sm font-medium text-[#523805]">
+                        空投总量
+                      </label>
+                      <Input
+                        id="amount"
+                        placeholder="输入空投总量"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                        className="border-[#EACC91] focus-visible:ring-[#987A3F]"
                       />
                     </div>
 
-                    {eligibilityFormat === "simple" && (
-                      <div className="p-3 bg-[#F9F5EA] rounded-lg">
-                        <div className="flex items-start gap-2">
-                          <Info className="h-4 w-4 text-[#987A3F] mt-0.5" />
-                          <p className="text-sm text-[#523805]">
-                            在简单模式下，每个地址将默认分配 1 个代币。如需为不同地址分配不同数量，请切换到高级模式。
-                          </p>
-                        </div>
-                      </div>
-                    )}
+                    <div className="space-y-2">
+                      <label htmlFor="startDate" className="text-sm font-medium text-[#523805]">
+                        开始时间
+                      </label>
+                      <Input
+                        id="startDate"
+                        type="datetime-local"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        className="border-[#EACC91] focus-visible:ring-[#987A3F]"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label htmlFor="endDate" className="text-sm font-medium text-[#523805]">
+                        结束时间
+                      </label>
+                      <Input
+                        id="endDate"
+                        type="datetime-local"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="border-[#EACC91] focus-visible:ring-[#987A3F]"
+                      />
+                    </div>
 
                     <Button
+                      className="w-full bg-[#987A3F] hover:bg-[#523805] text-white"
+                      onClick={handleCreateAirdrop}
+                      disabled={isAirdropLoading}
+                    >
+                      创建空投
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-[#EACC91] mt-6">
+                <CardHeader>
+                  <CardTitle className="text-xl text-[#523805]">设置资格</CardTitle>
+                  <CardDescription>设置用户领取资格</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label htmlFor="selectedAirdropId" className="text-sm font-medium text-[#523805]">
+                        选择空投
+                      </label>
+                      <select
+                        id="selectedAirdropId"
+                        value={selectedAirdropId || ""}
+                        onChange={(e) => setSelectedAirdropId(e.target.value ? Number(e.target.value) : null)}
+                        className="w-full px-3 py-2 rounded-md border border-[#EACC91] text-[#523805] bg-white"
+                      >
+                        <option value="">选择空投</option>
+                        {airdrops.map((airdrop) => (
+                          <option key={airdrop.id} value={airdrop.id}>
+                            #{airdrop.id} - {airdrop.tokenSymbol}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <label htmlFor="eligibilityInput" className="text-sm font-medium text-[#523805]">
+                          用户地址
+                        </label>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            type="button"
+                            className={`text-xs px-2 py-1 rounded ${
+                              eligibilityFormat === "simple" ? "bg-[#987A3F] text-white" : "bg-[#F9F5EA] text-[#523805]"
+                            }`}
+                            onClick={() => setEligibilityFormat("simple")}
+                          >
+                            简单模式
+                          </button>
+                          <button
+                            type="button"
+                            className={`text-xs px-2 py-1 rounded ${
+                              eligibilityFormat === "advanced"
+                                ? "bg-[#987A3F] text-white"
+                                : "bg-[#F9F5EA] text-[#523805]"
+                            }`}
+                            onClick={() => setEligibilityFormat("advanced")}
+                          >
+                            高级模式
+                          </button>
+                        </div>
+                      </div>
+                      <textarea
+                        id="eligibilityInput"
+                        placeholder={
+                          eligibilityFormat === "simple"
+                            ? "每行一个地址\n0x...\n0x..."
+                            : "每行格式: 地址,数量\n0x...,10\n0x...,20"
+                        }
+                        value={eligibilityInput}
+                        onChange={(e) => setEligibilityInput(e.target.value)}
+                        className="w-full min-h-[120px] px-3 py-2 rounded-md border border-[#EACC91] text-[#523805] bg-white"
+                      />
+                    </div>
+
+                    <Button
+                      className="w-full bg-[#987A3F] hover:bg-[#523805] text-white"
                       onClick={handleSetEligibility}
                       disabled={isAirdropLoading}
-                      className="bg-[#987A3F] hover:bg-[#523805] text-white"
                     >
                       设置资格
                     </Button>
-                    {error && (
-                      <Alert variant="destructive">
-                        <AlertCircle className="h-4 w-4" />
-                        <AlertTitle>设置失败</AlertTitle>
-                        <AlertDescription>{error}</AlertDescription>
-                      </Alert>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* 空投列表 */}
-              <Card className="border-[#EACC91] mt-6">
-                <CardHeader className="bg-gradient-to-r from-[#F9F5EA] to-transparent">
-                  <div className="flex justify-between items-center">
-                    <CardTitle className="flex items-center text-[#523805]">
-                      <Gift className="mr-2 h-5 w-5 text-[#987A3F]" />
-                      空投列表
-                    </CardTitle>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={refreshAirdrops}
-                      className="border-[#EACC91] text-[#987A3F] hover:bg-[#F9F5EA]"
-                    >
-                      <RefreshCw className="mr-2 h-4 w-4" />
-                      刷新列表
-                    </Button>
                   </div>
-                  <CardDescription>查看和管理现有的空投活动</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {airdrops.length === 0 ? (
-                    <div className="text-center py-8">
-                      <Gift className="mx-auto h-12 w-12 text-[#EACC91]" />
-                      <h3 className="mt-4 text-lg font-medium text-[#523805]">暂无空投</h3>
-                      <p className="mt-2 text-sm text-[#987A3F]">您还没有创建任何空投活动</p>
-                    </div>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-[80px]">ID</TableHead>
-                          <TableHead>代币</TableHead>
-                          <TableHead>数量</TableHead>
-                          <TableHead>开始时间</TableHead>
-                          <TableHead>结束时间</TableHead>
-                          <TableHead>状态</TableHead>
-                          <TableHead className="text-right">操作</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {airdrops.map((airdrop) => (
-                          <TableRow key={airdrop.id}>
-                            <TableCell className="font-medium">{airdrop.id}</TableCell>
-                            <TableCell>{airdrop.tokenSymbol}</TableCell>
-                            <TableCell>{airdrop.amount}</TableCell>
-                            <TableCell>{new Date(airdrop.startTime * 1000).toLocaleDateString()}</TableCell>
-                            <TableCell>{new Date(airdrop.endTime * 1000).toLocaleDateString()}</TableCell>
-                            <TableCell>
-                              <Badge variant={airdrop.active ? "default" : "outline"}>
-                                {airdrop.active ? "活跃" : "未激活"}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleToggleAirdropStatus(airdrop.id, airdrop.active)}
-                              >
-                                {airdrop.active ? (
-                                  <>
-                                    <Pause className="mr-2 h-4 w-4" />
-                                    停用
-                                  </>
-                                ) : (
-                                  <>
-                                    <Play className="mr-2 h-4 w-4" />
-                                    激活
-                                  </>
-                                )}
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
                 </CardContent>
               </Card>
-            </>
-          )}
+            </div>
+          </div>
         </TabsContent>
 
-        {/* 农场管理标签 */}
+        {/* 农场标签 */}
         <TabsContent value="farms">
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold text-[#523805]">农场管理</h2>
             <div className="flex gap-2">
               <Button
@@ -2198,359 +1998,350 @@ function AdminDashboard() {
                 <RefreshCw className="mr-2 h-4 w-4" />
                 刷新数据
               </Button>
-              <Dialog open={isAddFarmDialogOpen} onOpenChange={setIsAddFarmDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button className="bg-[#987A3F] hover:bg-[#523805] text-white">
-                    <Plus className="mr-2 h-4 w-4" />
-                    添加农场
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-md rounded-2xl border border-[#EACC91]">
-                  <DialogHeader>
-                    <DialogTitle className="text-[#523805]">添加新农场</DialogTitle>
-                    <DialogDescription>创建一个新的流动性挖矿农场池。</DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="stakingToken" className="text-[#523805]">
-                        质押代币地址
-                      </Label>
-                      <Input
-                        id="stakingToken"
-                        placeholder="输入LP代币合约地址"
-                        value={stakingToken}
-                        onChange={(e) => setStakingToken(e.target.value)}
-                        className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="allocPoint" className="text-[#523805]">
-                        分配点数
-                      </Label>
-                      <Input
-                        id="allocPoint"
-                        type="number"
-                        placeholder="输入分配点数"
-                        value={allocPoint}
-                        onChange={(e) => setAllocPoint(e.target.value)}
-                        className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                      />
-                      <p className="text-xs text-[#987A3F]">分配点数决定了该农场获得的奖励比例。</p>
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button
-                      variant="outline"
-                      onClick={() => setIsAddFarmDialogOpen(false)}
-                      className="border-[#EACC91] text-[#523805]"
-                    >
-                      取消
-                    </Button>
-                    <Button onClick={handleAddFarm} className="bg-[#987A3F] hover:bg-[#523805] text-white">
-                      添加
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+              <Button
+                className="bg-[#987A3F] hover:bg-[#523805] text-white"
+                onClick={() => router.push("/admin/farm-management")}
+              >
+                <Tractor className="mr-2 h-4 w-4" />
+                高级农场管理
+              </Button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              <Card className="border-[#EACC91]">
-                <CardHeader className="bg-gradient-to-r from-[#F9F5EA] to-transparent">
-                  <CardTitle className="flex items-center text-[#523805]">
-                    <Tractor className="mr-2 h-5 w-5 text-[#987A3F]" />
-                    农场列表
-                  </CardTitle>
-                  <CardDescription>管理所有农场池</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {isFarmLoading ? (
-                    <div className="flex justify-center items-center py-20">
-                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#987A3F]"></div>
-                    </div>
-                  ) : farms.length === 0 ? (
-                    <div className="text-center py-10">
-                      <Tractor className="h-12 w-12 mx-auto text-[#EACC91]" />
-                      <h3 className="mt-4 text-xl font-medium text-[#523805]">暂无农场</h3>
-                      <p className="mt-2 text-[#987A3F]">点击"添加农场"按钮创建您的第一个农场。</p>
-                    </div>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-[80px]">ID</TableHead>
-                          <TableHead>农场</TableHead>
-                          <TableHead>分配点数</TableHead>
-                          <TableHead>总质押量</TableHead>
-                          <TableHead>乘数</TableHead>
-                          <TableHead>操作</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {farms.map((farm) => (
-                          <TableRow key={farm.id}>
-                            <TableCell className="font-medium">{farm.id}</TableCell>
-                            <TableCell>
-                              <div className="flex items-center">
-                                <div className="relative h-8 w-8 mr-2">
-                                  <div className="absolute top-0 left-0 h-6 w-6 rounded-full overflow-hidden z-10">
-                                    <img
-                                      src={farm.token0.logo || "/placeholder.svg"}
-                                      alt={farm.token0.symbol}
-                                      className="h-full w-full object-cover"
-                                    />
-                                  </div>
-                                  <div className="absolute bottom-0 right-0 h-6 w-6 rounded-full overflow-hidden border border-white">
-                                    <img
-                                      src={farm.token1.logo || "/placeholder.svg"}
-                                      alt={farm.token1.symbol}
-                                      className="h-full w-full object-cover"
-                                    />
-                                  </div>
-                                </div>
-                                <div>
-                                  <div className="font-medium text-[#523805]">{farm.name}</div>
-                                  <div className="text-xs text-[#987A3F]">奖励: {farm.rewardToken}</div>
-                                </div>
+          <Card className="border-[#EACC91]">
+            <CardHeader className="bg-gradient-to-r from-[#F9F5EA] to-transparent">
+              <CardTitle className="flex items-center text-[#523805]">
+                <Tractor className="mr-2 h-5 w-5 text-[#987A3F]" />
+                农场列表
+              </CardTitle>
+              <CardDescription>管理所有农场池</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isFarmLoading ? (
+                <div className="flex justify-center items-center py-20">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#987A3F]"></div>
+                </div>
+              ) : farms.length === 0 ? (
+                <div className="text-center py-10">
+                  <Tractor className="h-12 w-12 mx-auto text-[#EACC91]" />
+                  <h3 className="mt-4 text-xl font-medium text-[#523805]">暂无农场</h3>
+                  <p className="mt-2 text-[#987A3F]">点击"添加农场"按钮创建您的第一个农场。</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[80px]">ID</TableHead>
+                      <TableHead>农场</TableHead>
+                      <TableHead>分配点数</TableHead>
+                      <TableHead>总质押量</TableHead>
+                      <TableHead>乘数</TableHead>
+                      <TableHead>操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {farms.map((farm) => (
+                      <TableRow key={farm.id}>
+                        <TableCell className="font-medium">{farm.id}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center">
+                            <div className="relative h-8 w-8 mr-2">
+                              <div className="absolute top-0 left-0 h-6 w-6 rounded-full overflow-hidden z-10">
+                                <img
+                                  src={farm.token0?.logo || "/placeholder.svg"}
+                                  alt={farm.token0?.symbol}
+                                  className="h-full w-full object-cover"
+                                />
                               </div>
-                            </TableCell>
-                            <TableCell>{farm.multiplier}0 点</TableCell>
-                            <TableCell>{farm.totalStaked.toFixed(4)}</TableCell>
-                            <TableCell>{farm.multiplier}x</TableCell>
-                            <TableCell>
-                              <div className="flex items-center space-x-2">
-                                <Dialog>
-                                  <DialogTrigger asChild>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="border-[#EACC91] text-[#987A3F] hover:bg-[#F9F5EA]"
-                                      onClick={() => {
-                                        setSelectedFarm(farm)
-                                        setUpdateAllocPoint((Number(farm.multiplier) * 10).toString())
-                                      }}
-                                    >
-                                      <Pencil className="h-4 w-4 mr-1" />
-                                      编辑
-                                    </Button>
-                                  </DialogTrigger>
-                                  <DialogContent className="sm:max-w-md rounded-2xl border border-[#EACC91]">
-                                    <DialogHeader>
-                                      <DialogTitle className="text-[#523805]">更新农场</DialogTitle>
-                                      <DialogDescription>修改 {selectedFarm?.name} 农场的配置。</DialogDescription>
-                                    </DialogHeader>
-                                    <div className="space-y-4 py-4">
-                                      <div className="space-y-2">
-                                        <Label htmlFor="updateAllocPoint" className="text-[#523805]">
-                                          分配点数
-                                        </Label>
-                                        <Input
-                                          id="updateAllocPoint"
-                                          type="number"
-                                          placeholder="输入新的分配点数"
-                                          value={updateAllocPoint}
-                                          onChange={(e) => setUpdateAllocPoint(e.target.value)}
-                                          className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                                        />
-                                        <p className="text-xs text-[#987A3F]">当前值: {selectedFarm?.multiplier}0 点</p>
-                                      </div>
-                                    </div>
-                                    <DialogFooter>
-                                      <Button
-                                        variant="outline"
-                                        onClick={() => setSelectedFarm(null)}
-                                        className="border-[#EACC91] text-[#523805]"
-                                      >
-                                        取消
-                                      </Button>
-                                      <Button
-                                        onClick={handleUpdateFarm}
-                                        className="bg-[#987A3F] hover:bg-[#523805] text-white"
-                                      >
-                                        更新
-                                      </Button>
-                                    </DialogFooter>
-                                  </DialogContent>
-                                </Dialog>
+                              <div className="absolute bottom-0 right-0 h-6 w-6 rounded-full overflow-hidden border border-white">
+                                <img
+                                  src={farm.token1?.logo || "/placeholder.svg"}
+                                  alt={farm.token1?.symbol}
+                                  className="h-full w-full object-cover"
+                                />
                               </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            <div className="lg:col-span-1">
-              <Card className="border-[#EACC91]">
-                <CardHeader className="bg-gradient-to-r from-[#F9F5EA] to-transparent">
-                  <CardTitle className="flex items-center text-[#523805]">
-                    <Coins className="mr-2 h-5 w-5 text-[#987A3F]" />
-                    奖励设置
-                  </CardTitle>
-                  <CardDescription>管理全局奖励参数</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="p-4 bg-[#F9F5EA] rounded-lg">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm text-[#987A3F]">每区块奖励</span>
-                      <Badge className="bg-[#987A3F] text-white">全局设置</Badge>
-                    </div>
-                    <div className="text-2xl font-bold text-[#523805]">
-                      {isFarmLoading ? (
-                        <div className="animate-pulse h-8 w-24 bg-[#EACC91]/50 rounded"></div>
-                      ) : farms.length > 0 ? (
-                        `${Number(farms[0].apr / 100).toFixed(4)} CAKE`
-                      ) : (
-                        "0 CAKE"
-                      )}
-                    </div>
-                    <div className="text-xs text-[#987A3F] mt-1">每个区块分配给所有农场的奖励代币数量</div>
-                  </div>
-
-                  <div className="flex flex-col space-y-2">
-                    <Dialog open={isUpdateRewardDialogOpen} onOpenChange={setIsUpdateRewardDialogOpen}>
-                      <DialogTrigger asChild>
-                        <Button className="bg-[#987A3F] hover:bg-[#523805] text-white">
-                          <Calculator className="mr-2 h-4 w-4" />
-                          更新每区块奖励
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="sm:max-w-md rounded-2xl border border-[#EACC91]">
-                        <DialogHeader>
-                          <DialogTitle className="text-[#523805]">更新每区块奖励</DialogTitle>
-                          <DialogDescription>设置每个区块分配的奖励代币数量</DialogDescription>
-                        </DialogHeader>
-                        <div className="space-y-4 py-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="rewardPerBlock" className="text-[#523805]">
-                              每区块奖励
-                            </Label>
-                            <Input
-                              id="rewardPerBlock"
-                              type="number"
-                              placeholder="输入每区块奖励数量"
-                              value={rewardPerBlock}
-                              onChange={(e) => setRewardPerBlock(e.target.value)}
-                              className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                            />
-                            <p className="text-xs text-[#987A3F]">
-                              设置较高的奖励会提高 APR，但会更快地消耗奖励代币池。
-                            </p>
+                            </div>
+                            <div>
+                              <div className="font-medium text-[#523805]">{farm.name}</div>
+                              <div className="text-xs text-[#987A3F]">奖励: {farm.rewardToken}</div>
+                            </div>
                           </div>
-                        </div>
-                        <DialogFooter>
+                        </TableCell>
+                        <TableCell>{farm.multiplier}0 点</TableCell>
+                        <TableCell>{farm.totalStaked?.toFixed(4)}</TableCell>
+                        <TableCell>{farm.multiplier}x</TableCell>
+                        <TableCell>
                           <Button
                             variant="outline"
-                            onClick={() => setIsUpdateRewardDialogOpen(false)}
-                            className="border-[#EACC91] text-[#523805]"
+                            size="sm"
+                            className="border-[#EACC91] text-[#987A3F] hover:bg-[#F9F5EA]"
+                            onClick={() => router.push(`/admin/farm-management`)}
                           >
-                            取消
+                            <Edit className="h-4 w-4 mr-1" />
+                            编辑
                           </Button>
-                          <Button onClick={handleUpdateReward} className="bg-[#987A3F] hover:bg-[#523805] text-white">
-                            更新
-                          </Button>
-                        </DialogFooter>
-                      </DialogContent>
-                    </Dialog>
-
-                    <Dialog open={isFundRewardsDialogOpen} onOpenChange={setIsFundRewardsDialogOpen}>
-                      <DialogTrigger asChild>
-                        <Button variant="outline" className="border-[#EACC91] text-[#987A3F] hover:bg-[#F9F5EA]">
-                          <Coins className="mr-2 h-4 w-4" />
-                          添加奖励资金
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="sm:max-w-md rounded-2xl border border-[#EACC91]">
-                        <DialogHeader>
-                          <DialogTitle className="text-[#523805]">添加奖励资金</DialogTitle>
-                          <DialogDescription>向奖励池添加更多代币以延长挖矿期限</DialogDescription>
-                        </DialogHeader>
-                        <div className="space-y-4 py-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="fundAmount" className="text-[#523805]">
-                              奖励代币数量
-                            </Label>
-                            <Input
-                              id="fundAmount"
-                              type="number"
-                              placeholder="输入添加的奖励代币数量"
-                              value={fundAmount}
-                              onChange={(e) => setFundAmount(e.target.value)}
-                              className="border-[#EACC91] focus-visible:ring-[#987A3F]"
-                            />
-                            <p className="text-xs text-[#987A3F]">
-                              添加的代币将用于农场奖励，需要先授权合约使用您的代币。
-                            </p>
-                          </div>
-                        </div>
-                        <DialogFooter>
-                          <Button
-                            variant="outline"
-                            onClick={() => setIsFundRewardsDialogOpen(false)}
-                            className="border-[#EACC91] text-[#523805]"
-                          >
-                            取消
-                          </Button>
-                          <Button onClick={handleFundRewards} className="bg-[#987A3F] hover:bg-[#523805] text-white">
-                            添加资金
-                          </Button>
-                        </DialogFooter>
-                      </DialogContent>
-                    </Dialog>
-                  </div>
-
-                  <Alert className="bg-[#F9F5EA] border-[#EACC91]">
-                    <Info className="h-4 w-4 text-[#987A3F]" />
-                    <AlertTitle className="text-[#523805]">奖励池信息</AlertTitle>
-                    <AlertDescription className="text-[#987A3F]">
-                      确保您的合约中有足够的奖励代币。更新每区块奖励会影响所有农场的 APR。
-                    </AlertDescription>
-                  </Alert>
-
-                  <Separator className="my-2 bg-[#EACC91]" />
-
-                  <div className="space-y-2">
-                    <h3 className="font-medium text-[#523805]">分配点数说明</h3>
-                    <p className="text-sm text-[#987A3F]">
-                      分配点数决定了每个农场池获得的奖励比例。例如，如果有两个农场，分配点数分别为 100 和
-                      300，那么第一个农场将获得 25% 的奖励，第二个农场将获得 75% 的奖励。
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* IDO管理标签 */}
         <TabsContent value="ido">
-          <Card className="border-[#EACC91]">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold text-[#523805]">IDO管理</h2>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="border-[#EACC91] text-[#523805] hover:bg-[#F9F5EA]"
+                onClick={refreshIdoData}
+                disabled={isIdoLoading}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${isIdoLoading ? "animate-spin" : ""}`} />
+                刷新数据
+              </Button>
+              <Button
+                className="bg-[#987A3F] hover:bg-[#523805] text-white"
+                onClick={() => router.push("/admin/create-ido")}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                创建IDO
+              </Button>
+              <Button
+                variant="outline"
+                className="border-[#EACC91] text-[#523805] hover:bg-[#F9F5EA]"
+                onClick={() => router.push("/admin/ido-management")}
+              >
+                <Settings className="h-4 w-4 mr-2" />
+                高级管理
+              </Button>
+            </div>
+          </div>
+
+          <Card className="border-[#EACC91] shadow-md">
             <CardHeader>
-              <CardTitle className="text-[#523805]">IDO管理</CardTitle>
-              <CardDescription>设置和管理您的首次代币发行</CardDescription>
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <CardTitle className="text-xl text-[#523805]">IDO项目列表</CardTitle>
+
+                <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-[#523805]/50" />
+                    <Input
+                      placeholder="搜索项目..."
+                      className="pl-10 border-[#EACC91] text-[#523805] rounded-lg"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
             </CardHeader>
+
             <CardContent>
-              <p>此功能正在开发中...</p>
+              {isIdoLoading ? (
+                <div className="flex justify-center items-center py-20">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#987A3F]"></div>
+                </div>
+              ) : filteredIdoProjects.length === 0 ? (
+                <div className="bg-[#F9F5EA] rounded-2xl p-8 text-center">
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="p-3 bg-[#EACC91]/30 rounded-full">
+                      <Info className="h-8 w-8 text-[#523805]/50" />
+                    </div>
+                    <h3 className="text-xl font-bold text-[#523805]">未找到IDO项目</h3>
+                    <p className="text-[#523805]/70">没有符合您搜索条件的IDO项目，或者尚未创建任何项目。</p>
+                    <Button
+                      className="mt-2 bg-[#987A3F] hover:bg-[#523805] text-white"
+                      onClick={() => router.push("/admin/create-ido")}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      创建第一个IDO项目
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-[#523805]">项目</TableHead>
+                        <TableHead className="text-[#523805]">状态</TableHead>
+                        <TableHead className="text-[#523805]">时间线</TableHead>
+                        <TableHead className="text-[#523805]">进度</TableHead>
+                        <TableHead className="text-[#523805]">操作</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredIdoProjects.map((project) => (
+                        <TableRow key={project.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <div className="h-10 w-10 rounded-full overflow-hidden border border-[#EACC91]">
+                                <Image
+                                  src={project.tokenLogo || "/placeholder.svg"}
+                                  alt={project.name}
+                                  width={40}
+                                  height={40}
+                                  className="object-cover"
+                                />
+                              </div>
+                              <div>
+                                <div className="font-medium text-[#523805]">{project.name}</div>
+                                <div className="text-sm text-[#523805]/70">{project.tokenSymbol}</div>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>{getStatusBadge(project.status)}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-col">
+                              <div className="text-sm text-[#523805]/70 flex items-center">
+                                <Calendar className="h-3 w-3 mr-1" /> {formatDate(project.startTime)}
+                              </div>
+                              <div className="text-sm text-[#523805]/70 flex items-center">
+                                <Clock className="h-3 w-3 mr-1" /> {formatDate(project.endTime)}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="w-full max-w-[200px]">
+                              <div className="flex justify-between text-xs text-[#523805]/70 mb-1">
+                                <span>{formatNumber(project.totalRaised)} CAKE</span>
+                                <span>{formatNumber(project.hardCap)} CAKE</span>
+                              </div>
+                              <Progress value={calculateProgress(project)} className="h-2 bg-[#EACC91]/30" />
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="border-[#EACC91] text-[#523805]"
+                                onClick={() => router.push(`/admin/ido-management?projectId=${project.id}`)}
+                              >
+                                <ExternalLink className="h-4 w-4 mr-1" />
+                                详情
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="border-[#EACC91] text-[#523805]"
+                                onClick={() => router.push(`/admin/edit-ido/${project.id}`)}
+                              >
+                                <Edit className="h-4 w-4 mr-1" />
+                                编辑
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
         {/* 设置标签 */}
         <TabsContent value="settings">
-          <Card className="border-[#EACC91]">
-            <CardHeader>
-              <CardTitle className="text-[#523805]">设置</CardTitle>
-              <CardDescription>配置您的管理员面板</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p>此功能正在开发中...</p>
-            </CardContent>
-          </Card>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card className="border-[#EACC91]">
+              <CardHeader>
+                <CardTitle className="text-xl text-[#523805]">系统设置</CardTitle>
+                <CardDescription>管理系统配置</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="p-4 bg-[#F9F5EA] rounded-lg">
+                    <h3 className="font-medium text-[#523805] mb-2">合约地址</h3>
+                    <Button
+                      variant="outline"
+                      className="w-full border-[#EACC91] text-[#523805] hover:bg-[#F9F5EA]"
+                      onClick={() => router.push("/admin/contract-addresses")}
+                    >
+                      管理合约地址
+                    </Button>
+                  </div>
+
+                  <div className="p-4 bg-[#F9F5EA] rounded-lg">
+                    <h3 className="font-medium text-[#523805] mb-2">管理员权限</h3>
+                    <Button
+                      variant="outline"
+                      className="w-full border-[#EACC91] text-[#523805] hover:bg-[#F9F5EA]"
+                      onClick={() => router.push("/admin/manage-addresses")}
+                    >
+                      管理管理员地址
+                    </Button>
+                  </div>
+
+                  <div className="p-4 bg-[#F9F5EA] rounded-lg">
+                    <h3 className="font-medium text-[#523805] mb-2">调试工具</h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        variant="outline"
+                        className="border-[#EACC91] text-[#523805] hover:bg-[#F9F5EA]"
+                        onClick={() => router.push("/admin/debug-addresses")}
+                      >
+                        调试地址
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="border-[#EACC91] text-[#523805] hover:bg-[#F9F5EA]"
+                        onClick={() => router.push("/admin/debug-approve")}
+                      >
+                        调试授权
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-[#EACC91]">
+              <CardHeader>
+                <CardTitle className="text-xl text-[#523805]">账户信息</CardTitle>
+                <CardDescription>您的账户信息</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="p-4 bg-[#F9F5EA] rounded-lg">
+                    <h3 className="font-medium text-[#523805] mb-2">钱包地址</h3>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#523805]/70 font-mono">
+                        {walletState.address?.substring(0, 10)}...{walletState.address?.substring(36)}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => copyToClipboard(walletState.address || "")}
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-4 w-4 text-[#987A3F]"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                          />
+                        </svg>
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
     </div>

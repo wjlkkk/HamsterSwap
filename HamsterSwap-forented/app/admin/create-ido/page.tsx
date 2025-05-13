@@ -77,7 +77,7 @@ export default function CreateIdoPage() {
       }
 
       // 验证地址格式
-      if (!ethers.utils.isAddress(formData.projectOwner) || !ethers.utils.isAddress(formData.tokenAddress)) {
+      if (!ethers.isAddress(formData.projectOwner) || !ethers.isAddress(formData.tokenAddress)) {
         throw new Error("Invalid address format")
       }
 
@@ -90,18 +90,20 @@ export default function CreateIdoPage() {
         throw new Error("End time must be after start time")
       }
 
-      // 验证金额
-      const softCap = ethers.utils.parseEther(formData.softCap)
-      const hardCap = ethers.utils.parseEther(formData.hardCap)
-      const minAllocation = ethers.utils.parseEther(formData.minAllocation)
-      const maxAllocation = ethers.utils.parseEther(formData.maxAllocation)
-      const tokenPrice = ethers.utils.parseEther(formData.tokenPrice)
+      // 验证金额 - 使用 ethers.js v6 的 parseEther 方法
+      const softCap = ethers.parseEther(formData.softCap)
+      const hardCap = ethers.parseEther(formData.hardCap)
+      const minAllocation = ethers.parseEther(formData.minAllocation)
+      const maxAllocation = ethers.parseEther(formData.maxAllocation)
+      const tokenPrice = ethers.parseEther(formData.tokenPrice)
 
-      if (softCap.gte(hardCap)) {
+      // 在 ethers.js v6 中，BigNumber 被替换为原生 BigInt
+      // 使用原生比较操作符而不是 .gte() 方法
+      if (softCap >= hardCap) {
         throw new Error("Soft cap must be less than hard cap")
       }
 
-      if (minAllocation.gte(maxAllocation)) {
+      if (minAllocation >= maxAllocation) {
         throw new Error("Minimum allocation must be less than maximum allocation")
       }
 
@@ -127,16 +129,33 @@ export default function CreateIdoPage() {
       // 等待交易确认
       const receipt = await tx.wait()
 
-      // 获取项目ID
-      const projectCreatedEvent = receipt.events?.find((e: any) => e.event === "ProjectCreated")
-      const projectId = projectCreatedEvent?.args?.projectId.toNumber()
+      // 获取项目ID - 在 ethers.js v6 中，事件处理也有所不同
+      let projectId
+      if (receipt && receipt.logs) {
+        const iface = new ethers.Interface(IDO_ABI)
+        for (const log of receipt.logs) {
+          try {
+            const parsedLog = iface.parseLog({
+              topics: log.topics as string[],
+              data: log.data,
+            })
+            if (parsedLog && parsedLog.name === "ProjectCreated") {
+              projectId = parsedLog.args.projectId
+              break
+            }
+          } catch (e) {
+            // 如果解析失败，继续尝试下一个日志
+            continue
+          }
+        }
+      }
 
       // 如果有白名单地址，添加到白名单
-      if (formData.whitelistAddresses.trim()) {
+      if (formData.whitelistAddresses.trim() && projectId !== undefined) {
         const addresses = formData.whitelistAddresses
           .split(/[\n,]/)
           .map((addr) => addr.trim())
-          .filter((addr) => ethers.utils.isAddress(addr))
+          .filter((addr) => ethers.isAddress(addr))
 
         if (addresses.length > 0) {
           const whitelistTx = await idoContract.addToWhitelist(projectId, addresses)
@@ -146,7 +165,7 @@ export default function CreateIdoPage() {
 
       toast({
         title: "IDO project created",
-        description: `Project ID: ${projectId}. The project has been successfully created.`,
+        description: `Project ID: ${projectId !== undefined ? projectId.toString() : "Unknown"}. The project has been successfully created.`,
       })
 
       // 重置表单

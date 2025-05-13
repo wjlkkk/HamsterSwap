@@ -16,4 +16,5 @@ contract CAKE is ERC20, Ownable, ERC20Permit {
     function mint(address to, uint256 amount) public onlyOwner {
         _mint(to, amount);
     }
+    
 }

@@ -1,7 +1,7 @@
 import { ethers } from "ethers"
 import { getContractAddress } from "@/utils/contract-addresses"
 
-// ERC20 ABI - 包含标准方法和扩展方法
+// 完整的ERC20 ABI，包含所有标准方法和扩展方法
 export const ERC20_ABI = [
   // 读取函数
   "function name() view returns (string)",
@@ -27,40 +27,63 @@ export const getAirdropContractAddress = async () => {
   return await getContractAddress("Airdrop")
 }
 
-// 已部署的代币列表
+// 已部署的代币列表 - 返回空数组，由用户手动添加代币
 export const getDeployedTokens = async () => {
-  return [] // 返回空数组，让管理员手动添加代币
+  return []
 }
 
-// 获取代币信息
+// 获取代币信息 - 直接从合约获取
 export async function getTokenInfo(tokenAddress: string, provider: ethers.BrowserProvider) {
   try {
-    const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider)
+    console.log("正在获取代币信息:", tokenAddress)
 
-    const [name, symbol, decimals] = await Promise.all([
-      tokenContract.name(),
-      tokenContract.symbol(),
-      tokenContract.decimals(),
+    // 验证地址格式
+    const formattedAddress = ethers.getAddress(tokenAddress.trim())
+    console.log("格式化后的地址:", formattedAddress)
+
+    // 创建合约实例
+    const tokenContract = new ethers.Contract(formattedAddress, ERC20_ABI, provider)
+
+    // 尝试调用基本方法以验证合约
+    const [name, symbol, decimals, totalSupply] = await Promise.all([
+      tokenContract.name().catch(() => "Unknown Token"),
+      tokenContract.symbol().catch(() => "???"),
+      tokenContract.decimals().catch(() => 18),
+      tokenContract.totalSupply().catch(() => ethers.parseEther("0")),
     ])
+
+    console.log("获取到代币信息:", { name, symbol, decimals, totalSupply: ethers.formatUnits(totalSupply, decimals) })
 
     // 尝试获取owner，如果合约支持的话
     let owner = null
     try {
       owner = await tokenContract.owner()
+      console.log("代币所有者:", owner)
     } catch (e) {
       console.log("Token does not have owner method")
     }
 
+    // 尝试获取暂停状态，如果合约支持的话
+    let paused = false
+    try {
+      paused = await tokenContract.paused()
+      console.log("代币暂停状态:", paused)
+    } catch (e) {
+      console.log("Token does not have paused method")
+    }
+
     return {
-      address: tokenAddress,
+      address: formattedAddress,
       name,
       symbol,
       decimals,
+      totalSupply: ethers.formatUnits(totalSupply, decimals),
       owner,
+      paused,
     }
   } catch (error) {
-    console.error("Error getting token info:", error)
-    throw new Error("Failed to get token information")
+    console.error("获取代币信息失败:", error)
+    throw new Error(`无法获取代币信息: ${error.message || "未知错误"}`)
   }
 }
 
@@ -77,8 +100,8 @@ export async function getTokenBalance(tokenAddress: string, accountAddress: stri
       decimals,
     }
   } catch (error) {
-    console.error("Error getting token balance:", error)
-    throw new Error("Failed to get token balance")
+    console.error("获取代币余额失败:", error)
+    throw new Error(`获取代币余额失败: ${error.message || "未知错误"}`)
   }
 }
 
@@ -100,8 +123,8 @@ export async function checkAllowance(
       decimals,
     }
   } catch (error) {
-    console.error("Error checking allowance:", error)
-    throw new Error("Failed to check token allowance")
+    console.error("检查授权额度失败:", error)
+    throw new Error(`检查授权额度失败: ${error.message || "未知错误"}`)
   }
 }
 
@@ -128,8 +151,8 @@ export async function approveTokens(
     const receipt = await tx.wait()
     return receipt
   } catch (error) {
-    console.error("Error approving tokens:", error)
-    throw new Error("Failed to approve tokens")
+    console.error("授权代币失败:", error)
+    throw new Error(`授权代币失败: ${error.message || "未知错误"}`)
   }
 }
 
@@ -156,16 +179,15 @@ export async function transferTokens(
     const receipt = await tx.wait()
     return receipt
   } catch (error) {
-    console.error("Error transferring tokens:", error)
-    throw new Error("Failed to transfer tokens")
+    console.error("转移代币失败:", error)
+    throw new Error(`转移代币失败: ${error.message || "未知错误"}`)
   }
 }
 
-// 从一个地址转移代币到另一个地址（需要授权）
-export async function transferFromTokens(
+// 铸造代币
+export async function mintTokens(
   tokenAddress: string,
-  fromAddress: string,
-  toAddress: string,
+  recipientAddress: string,
   amount: string,
   provider: ethers.BrowserProvider,
   signer: ethers.Signer,
@@ -179,13 +201,76 @@ export async function transferFromTokens(
     const parsedAmount = ethers.parseUnits(amount, decimals)
 
     // 发送交易
-    const tx = await tokenWithSigner.transferFrom(fromAddress, toAddress, parsedAmount)
+    const tx = await tokenWithSigner.mint(recipientAddress, parsedAmount)
 
     // 等待交易确认
     const receipt = await tx.wait()
     return receipt
   } catch (error) {
-    console.error("Error transferring tokens from address:", error)
-    throw new Error("Failed to transfer tokens from address")
+    console.error("铸造代币失败:", error)
+    throw new Error(`铸造代币失败: ${error.message || "未知错误"}`)
+  }
+}
+
+// 销毁代币
+export async function burnTokens(
+  tokenAddress: string,
+  amount: string,
+  provider: ethers.BrowserProvider,
+  signer: ethers.Signer,
+) {
+  try {
+    const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider)
+    const tokenWithSigner = tokenContract.connect(signer)
+    const decimals = await tokenContract.decimals()
+
+    // 将金额转换为正确的单位
+    const parsedAmount = ethers.parseUnits(amount, decimals)
+
+    // 发送交易
+    const tx = await tokenWithSigner.burn(parsedAmount)
+
+    // 等待交易确认
+    const receipt = await tx.wait()
+    return receipt
+  } catch (error) {
+    console.error("销毁代币失败:", error)
+    throw new Error(`销毁代币失败: ${error.message || "未知错误"}`)
+  }
+}
+
+// 暂停代币
+export async function pauseToken(tokenAddress: string, provider: ethers.BrowserProvider, signer: ethers.Signer) {
+  try {
+    const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider)
+    const tokenWithSigner = tokenContract.connect(signer)
+
+    // 发送交易
+    const tx = await tokenWithSigner.pause()
+
+    // 等待交易确认
+    const receipt = await tx.wait()
+    return receipt
+  } catch (error) {
+    console.error("暂停代币失败:", error)
+    throw new Error(`暂停代币失败: ${error.message || "未知错误"}`)
+  }
+}
+
+// 恢复代币
+export async function unpauseToken(tokenAddress: string, provider: ethers.BrowserProvider, signer: ethers.Signer) {
+  try {
+    const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider)
+    const tokenWithSigner = tokenContract.connect(signer)
+
+    // 发送交易
+    const tx = await tokenWithSigner.unpause()
+
+    // 等待交易确认
+    const receipt = await tx.wait()
+    return receipt
+  } catch (error) {
+    console.error("恢复代币失败:", error)
+    throw new Error(`恢复代币失败: ${error.message || "未知错误"}`)
   }
 }

@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const ADDRESS_FILE = path.join(__dirname, "../../HamsterSwap-forented/public/HamsterSwap-contracts/contract-address.json");
+const ADDRESS_FILE = path.join(__dirname, "../../HamsterSwap-ft/public/HamsterSwap-contracts/contract-address.json");
 
 function getSavedContractAddresses() {
     if (fs.existsSync(ADDRESS_FILE)) {

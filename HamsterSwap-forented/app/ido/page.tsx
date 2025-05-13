@@ -7,7 +7,6 @@ import {
   ChevronDown,
   ChevronUp,
   Info,
-  ExternalLink,
   Search,
   Calendar,
   Clock,
@@ -15,6 +14,9 @@ import {
   CheckCircle,
   XCircle,
   RefreshCw,
+  ExternalLink,
+  Twitter,
+  MessageCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -28,8 +30,17 @@ import Navbar from "@/components/navbar"
 
 export default function IdoPage() {
   const { walletState, setIsWalletModalOpen } = useWallet()
-  const { idoProjects, userAllocations, isLoading, cakeBalance, participate, claim, refund, refreshData } =
-    useIdoContract()
+  const {
+    idoProjects,
+    userAllocations,
+    isLoading,
+    cakeBalance,
+    participate,
+    claim,
+    refund,
+    refreshData,
+    completeTask,
+  } = useIdoContract()
   const { toast } = useToast()
 
   const [activeTab, setActiveTab] = useState("active")
@@ -229,6 +240,7 @@ export default function IdoPage() {
                     isWalletConnected={walletState.connected}
                     onConnectWallet={() => setIsWalletModalOpen(true)}
                     cakeBalance={cakeBalance}
+                    completeTask={completeTask}
                   />
                 ))}
               </div>
@@ -266,6 +278,9 @@ interface IdoProjectCardProps {
       discord?: string
       medium?: string
     }
+    tasks: any[]
+    isWhitelisted: boolean
+    isCancelled: boolean
   }
   isExpanded: boolean
   toggleExpand: () => void
@@ -279,6 +294,7 @@ interface IdoProjectCardProps {
   isWalletConnected: boolean
   onConnectWallet: () => void
   cakeBalance: string
+  completeTask: (projectId: number, taskId: string) => void
 }
 
 function IdoProjectCard({
@@ -292,11 +308,125 @@ function IdoProjectCard({
   isWalletConnected,
   onConnectWallet,
   cakeBalance,
+  completeTask,
 }: IdoProjectCardProps) {
   const [participateAmount, setParticipateAmount] = useState("")
   const [isParticipateDialogOpen, setIsParticipateDialogOpen] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const { toast } = useToast()
+
+  const handleCompleteTask = (taskId: string) => {
+    try {
+      completeTask(project.id, taskId)
+      toast({
+        title: "Task completed",
+        description: "You've completed a task and are one step closer to being whitelisted.",
+      })
+    } catch (error) {
+      console.error("Error completing task:", error)
+      toast({
+        title: "Error",
+        description: "Could not complete the task. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const TaskItem = ({ task }: { task: any }) => {
+    const getTaskIcon = () => {
+      switch (task.type) {
+        case "twitter":
+          return <Twitter className="h-4 w-4 text-blue-500" />
+        case "telegram":
+          return <MessageCircle className="h-4 w-4 text-blue-400" />
+        case "discord":
+          return <MessageCircle className="h-4 w-4 text-indigo-500" />
+        default:
+          return <ExternalLink className="h-4 w-4 text-[#523805]" />
+      }
+    }
+
+    return (
+      <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-[#EACC91]/50">
+        <div className="flex items-center gap-2">
+          {getTaskIcon()}
+          <span className="text-sm text-[#523805]">{task.description}</span>
+        </div>
+        {task.completed ? (
+          <div className="flex items-center text-green-600">
+            <CheckCircle className="h-4 w-4 mr-1" />
+            <span className="text-xs font-medium">Completed</span>
+          </div>
+        ) : (
+          <a
+            href={task.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-medium bg-[#EACC91]/30 hover:bg-[#EACC91]/50 rounded-full px-3 py-1 text-[#523805]"
+            onClick={(e) => {
+              // 先标记任务完成，然后再打开链接
+              handleCompleteTask(task.id)
+              // 防止立即触发多次
+              e.stopPropagation()
+            }}
+          >
+            Complete Task
+          </a>
+        )}
+      </div>
+    )
+  }
+
+  const WhitelistSection = () => {
+    if (!isWalletConnected) {
+      return (
+        <div className="bg-[#EACC91]/20 rounded-xl p-4 border border-[#EACC91]/40 mb-4">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-5 w-5 text-[#523805] flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-[#523805] mb-1">Connect Wallet to Participate</p>
+              <p className="text-xs text-[#523805]/80">
+                You need to connect your wallet to complete tasks and get whitelisted.
+              </p>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    if (project.isWhitelisted) {
+      return (
+        <div className="bg-green-50 rounded-xl p-4 border border-green-200 mb-4">
+          <div className="flex items-start gap-2">
+            <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-green-800 mb-1">You are Whitelisted!</p>
+              <p className="text-xs text-green-700">
+                Congratulations! You've completed all tasks and are whitelisted for this IDO.
+              </p>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div className="space-y-3 mb-4">
+        <div className="flex justify-between items-center">
+          <h4 className="text-sm font-medium text-[#523805]">Complete Tasks to Get Whitelisted</h4>
+          <span className="text-xs bg-[#EACC91]/30 rounded-full px-2 py-0.5 text-[#523805]">
+            {project.tasks.filter((t) => t.completed).length}/{project.tasks.length} Completed
+          </span>
+        </div>
+
+        <div className="space-y-2">
+          {project.tasks.map((task) => (
+            <TaskItem key={task.id} task={task} />
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   // 处理参与IDO
   const handleParticipate = async () => {
@@ -615,6 +745,8 @@ function IdoProjectCard({
             <div>
               <h4 className="font-medium text-[#523805] mb-4">Participation</h4>
 
+              <WhitelistSection />
+
               <div className="bg-white rounded-xl p-4 border border-[#EACC91] mb-4">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-sm font-medium text-[#523805]">IDO Timeline</span>
@@ -690,7 +822,9 @@ function IdoProjectCard({
                   <DialogTrigger asChild>
                     <Button
                       className="w-full bg-gradient-to-r from-[#EACC91] to-[#987A3F] hover:from-[#987A3F] hover:to-[#523805] text-[#523805] hover:text-white"
-                      disabled={!isWalletConnected || isProcessing}
+                      disabled={
+                        !isWalletConnected || isProcessing || (project.status === "active" && !project.isWhitelisted)
+                      }
                       onClick={() => (isWalletConnected ? undefined : onConnectWallet())}
                     >
                       {isProcessing ? (
@@ -698,6 +832,10 @@ function IdoProjectCard({
                           <div className="animate-spin mr-2 h-4 w-4 border-2 border-b-transparent border-white rounded-full"></div>
                           Processing...
                         </>
+                      ) : !isWalletConnected ? (
+                        "Connect Wallet"
+                      ) : project.status === "active" && !project.isWhitelisted ? (
+                        "Complete Tasks to Participate"
                       ) : (
                         "Participate in IDO"
                       )}

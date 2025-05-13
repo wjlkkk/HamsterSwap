@@ -19,6 +19,8 @@ import {
   Filter,
   Search,
   Info,
+  Twitter,
+  MessageCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -730,6 +732,12 @@ export default function IdoManagementPage() {
                 >
                   Whitelist
                 </TabsTrigger>
+                <TabsTrigger
+                  value="tasks"
+                  className="rounded-lg data-[state=active]:bg-white data-[state=active]:text-[#523805] data-[state=active]:shadow-sm text-[#523805]/70"
+                >
+                  Tasks
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value="details">
@@ -922,6 +930,68 @@ export default function IdoManagementPage() {
                       Use the "Manage Whitelist" button to add or remove addresses from the whitelist.
                     </p>
                   </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="tasks">
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-medium text-[#523805]">Whitelist Tasks</h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-[#EACC91] text-[#523805]"
+                      onClick={() => {
+                        // Refresh data
+                        refreshData()
+                      }}
+                    >
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Refresh
+                    </Button>
+                  </div>
+
+                  <div className="bg-[#F9F5EA] rounded-xl p-4 border border-[#EACC91]/40">
+                    <div className="flex items-start gap-2">
+                      <Info className="h-5 w-5 text-[#523805] flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-medium text-[#523805] mb-1">Task Information</p>
+                        <p className="text-xs text-[#523805]/80">
+                          Users need to complete social tasks to get whitelisted for this IDO. The system automatically
+                          grants whitelist status when all tasks are completed.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <Card className="border-[#EACC91]">
+                    <CardHeader>
+                      <CardTitle className="text-[#523805] text-lg">Social Tasks</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between p-3 bg-[#F9F5EA] rounded-lg border border-[#EACC91]/50">
+                          <div className="flex items-center gap-2">
+                            <Twitter className="h-5 w-5 text-blue-500" />
+                            <span className="text-[#523805]">Follow on Twitter</span>
+                          </div>
+                          <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">
+                            Active
+                          </Badge>
+                        </div>
+
+                        <div className="flex items-center justify-between p-3 bg-[#F9F5EA] rounded-lg border border-[#EACC91]/50">
+                          <div className="flex items-center gap-2">
+                            <MessageCircle className="h-5 w-5 text-blue-400" />
+                            <span className="text-[#523805]">Join Telegram Group</span>
+                          </div>
+                          <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">
+                            Active
+                          </Badge>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
                 </div>
               </TabsContent>
             </Tabs>

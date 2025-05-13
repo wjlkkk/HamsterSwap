@@ -3,7 +3,14 @@
 import { useState, useEffect, useCallback } from "react"
 import { useWallet } from "@/contexts/wallet-context"
 import { ethers } from "ethers"
-import { ERC20_ABI } from "@/contracts/token-contract"
+import {
+  ERC20_ABI,
+  getTokenInfo as fetchTokenInfo,
+  mintTokens,
+  burnTokens,
+  pauseToken,
+  unpauseToken,
+} from "@/contracts/token-contract"
 import { getContractAddress } from "@/utils/contract-addresses"
 
 export function useTokenContract(tokenAddress: string) {
@@ -35,7 +42,7 @@ export function useTokenContract(tokenAddress: string) {
   }, [])
 
   // 获取代币信息
-  const fetchTokenInfo = useCallback(async () => {
+  const fetchTokenInfoFromContract = useCallback(async () => {
     if (!tokenAddress || !walletState.provider) return
 
     setIsLoading(true)
@@ -44,45 +51,15 @@ export function useTokenContract(tokenAddress: string) {
     try {
       console.log("Fetching token info for address:", tokenAddress)
       const provider = new ethers.BrowserProvider(walletState.provider)
-      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider)
 
-      // 获取基本信息
-      const [name, symbol, decimals, totalSupplyValue] = await Promise.all([
-        tokenContract.name(),
-        tokenContract.symbol(),
-        tokenContract.decimals(),
-        tokenContract.totalSupply(),
-      ])
+      // 使用合约函数获取代币信息
+      const info = await fetchTokenInfo(tokenAddress, provider)
+      console.log("Token info fetched:", info)
 
-      console.log("Token info fetched:", { name, symbol, decimals: decimals.toString() })
-
-      // 尝试获取扩展信息
-      let ownerAddress = null
-      let pausedState = false
-
-      try {
-        ownerAddress = await tokenContract.owner()
-      } catch (e) {
-        console.log("Token does not have owner method")
-      }
-
-      try {
-        pausedState = await tokenContract.paused()
-      } catch (e) {
-        console.log("Token does not have paused method")
-      }
-
-      setTokenInfo({
-        address: tokenAddress,
-        name,
-        symbol,
-        decimals,
-        owner: ownerAddress, // 添加owner到tokenInfo
-      })
-
-      setTotalSupply(ethers.formatUnits(totalSupplyValue, decimals))
-      setOwner(ownerAddress)
-      setIsPaused(pausedState)
+      setTokenInfo(info)
+      setTotalSupply(info.totalSupply)
+      setOwner(info.owner)
+      setIsPaused(info.paused || false)
     } catch (err) {
       console.error("Error fetching token info:", err)
       setError("获取代币信息失败")
@@ -276,29 +253,21 @@ export function useTokenContract(tokenAddress: string) {
 
       const provider = new ethers.BrowserProvider(walletState.provider)
       const signer = await provider.getSigner()
-      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, signer)
 
       // 检查当前用户是否是合约所有者
-      const currentOwner = await tokenContract.owner()
       const currentSigner = await signer.getAddress()
-
-      console.log("合约所有者:", currentOwner)
       console.log("当前签名者:", currentSigner)
 
-      // 将金额转换为正确的单位
-      const amountInWei = ethers.parseUnits(amount, tokenInfo.decimals)
-      console.log("铸造金额(Wei):", amountInWei.toString())
+      if (owner && currentSigner.toLowerCase() !== owner.toLowerCase()) {
+        throw new Error("只有合约所有者才能铸造代币")
+      }
 
-      // 发送交易
-      const mintTx = await tokenContract.mint(to, amountInWei)
-      console.log("铸造交易已发送:", mintTx.hash)
-
-      // 等待交易确认
-      const receipt = await mintTx.wait()
+      // 使用mintTokens函数
+      const receipt = await mintTokens(tokenAddress, to, amount, provider, signer)
       console.log("铸造交易已确认:", receipt)
 
       // 更新总供应量和余额
-      await fetchTokenInfo()
+      await fetchTokenInfoFromContract()
       await fetchBalance()
 
       return receipt
@@ -324,25 +293,18 @@ export function useTokenContract(tokenAddress: string) {
     try {
       const provider = new ethers.BrowserProvider(walletState.provider)
       const signer = await provider.getSigner()
-      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, signer)
 
-      // 将金额转换为正确的单位
-      const amountInWei = ethers.parseUnits(amount, tokenInfo.decimals)
-
-      // 发送交易
-      const tx = await tokenContract.burn(amountInWei)
-
-      // 等待交易确认
-      const receipt = await tx.wait()
+      // 使用burnTokens函数
+      const receipt = await burnTokens(tokenAddress, amount, provider, signer)
 
       // 更新总供应量和余额
-      await fetchTokenInfo()
+      await fetchTokenInfoFromContract()
       await fetchBalance()
 
       return receipt
     } catch (err) {
-      console.error("Error burning tokens:", err)
-      setError("销毁失败")
+      console.error("销毁失败:", err)
+      setError(`销毁失败: ${(err as Error).message || "未知错误"}`)
       throw err
     } finally {
       setIsLoading(false)
@@ -362,21 +324,17 @@ export function useTokenContract(tokenAddress: string) {
     try {
       const provider = new ethers.BrowserProvider(walletState.provider)
       const signer = await provider.getSigner()
-      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, signer)
 
-      // 发送交易
-      const tx = await tokenContract.pause()
-
-      // 等待交易确认
-      const receipt = await tx.wait()
+      // 使用pauseToken函数
+      const receipt = await pauseToken(tokenAddress, provider, signer)
 
       // 更新暂停状态
       setIsPaused(true)
 
       return receipt
     } catch (err) {
-      console.error("Error pausing token:", err)
-      setError("暂停失败")
+      console.error("暂停失败:", err)
+      setError(`暂停失败: ${(err as Error).message || "未知错误"}`)
       throw err
     } finally {
       setIsLoading(false)
@@ -396,21 +354,17 @@ export function useTokenContract(tokenAddress: string) {
     try {
       const provider = new ethers.BrowserProvider(walletState.provider)
       const signer = await provider.getSigner()
-      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, signer)
 
-      // 发送交易
-      const tx = await tokenContract.unpause()
-
-      // 等待交易确认
-      const receipt = await tx.wait()
+      // 使用unpauseToken函数
+      const receipt = await unpauseToken(tokenAddress, provider, signer)
 
       // 更新暂停状态
       setIsPaused(false)
 
       return receipt
     } catch (err) {
-      console.error("Error unpausing token:", err)
-      setError("恢复失败")
+      console.error("恢复失败:", err)
+      setError(`恢复失败: ${(err as Error).message || "未知错误"}`)
       throw err
     } finally {
       setIsLoading(false)
@@ -420,9 +374,9 @@ export function useTokenContract(tokenAddress: string) {
   // 初始加载
   useEffect(() => {
     if (tokenAddress) {
-      fetchTokenInfo()
+      fetchTokenInfoFromContract()
     }
-  }, [fetchTokenInfo, tokenAddress])
+  }, [fetchTokenInfoFromContract, tokenAddress])
 
   // 钱包连接状态变化时获取余额和授权额度
   useEffect(() => {
@@ -442,7 +396,7 @@ export function useTokenContract(tokenAddress: string) {
     isLoading,
     error,
     airdropContractAddress,
-    fetchTokenInfo,
+    fetchTokenInfo: fetchTokenInfoFromContract,
     fetchBalance,
     fetchAllowance,
     transfer,

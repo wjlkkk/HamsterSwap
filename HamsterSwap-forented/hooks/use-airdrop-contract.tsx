@@ -92,7 +92,7 @@ export function useAirdropContract() {
       setError("请先连接钱包或合约地址未加载")
       return
     }
-    console.log("AIRDROP_ABI:", tokenAddress)
+
     setIsLoading(true)
     setError(null)
 

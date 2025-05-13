@@ -76,6 +76,21 @@ async function deployIDO(cakeAddress, networkName) {
     }
 }
 
+async function deployFaucet(networkName) {
+    try{
+        console.log("Deploy Faucet Contract...");
+        const faucet = await hre.ethers.getContractFactory("Faucet");
+        const Faucet = await faucet.deploy(ownerAddress);
+        await Faucet.waitForDeployment();
+        const faucetAddress = await Faucet.getAddress();
+        console.log(`Faucet Contract deployed to: ${faucetAddress}`);
+        saveContractAddress(networkName, "Faucet", faucetAddress);
+    } catch (error) {
+        console.error("Error deploying Faucet:", error);
+        throw error;
+    }
+}
+
 async function main() {
     try {
         const networkID = "31337"; // Replace with your network ID
@@ -86,8 +101,23 @@ async function main() {
         const cakeAddress = await cake.getAddress();
         const farm = await deployFarm(cakeAddress, networkID);
         const ido = await deployIDO(cakeAddress, networkID);
+        await deployFaucet(networkID);
 
         console.log("✅ All contracts deployed and addresses saved.");
+        const tx = await cake.mint(airdrop.getAddress(), ethers.parseEther("10000"));
+        await tx.wait();
+        const balance = await cake.balanceOf(airdrop.getAddress());
+        console.log(`Airdrop balance of CAKE token: ${ethers.formatEther(balance)}`);
+        
+        const tx2 = await cake.mint(ownerAddress, ethers.parseEther("10000"));
+        await tx2.wait();
+        const balance2 = await cake.balanceOf(ownerAddress);
+        console.log(`Owner balance of CAKE token: ${ethers.formatEther(balance2)}`);
+
+        const tx3 = await take.mint(ownerAddress, ethers.parseEther("10000"));
+        await tx3.wait();
+        const balance3 = await take.balanceOf(ownerAddress);
+        console.log(`Owner balance of TAKE token: ${ethers.formatEther(balance3)}`);
     } catch (error) {
         console.error("❌ Deployment failed:", error);
         process.exit(1);
